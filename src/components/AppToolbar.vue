@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette.vue";
 import SortModeMenu from "./SortModeMenu.vue";
 import { openCommandPalette, paletteOpen } from "../composables/commandPalette";
 import { activeKeymap } from "../composables/activeKeymap";
+import { keymapLabelKey } from "./keymapLabels";
 import { useI18n } from "vue-i18n";
 import { useCollectionBrowse, browseGotoIndex, browseGotoDetail } from "../composables/useCollectionBrowse";
 import { useShortcuts } from "../composables/useShortcuts";
@@ -288,16 +289,20 @@ const pageNumbers = computed(() => Array.from({ length: props.pages ?? 1 }, (_, 
       <!-- Star this project on GitHub. It retires itself once starred (or once the user has opened
            the repo page), so it is a one-time ask rather than a fixture. -->
       <LauncherButton v-if="starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
+      <!-- A button, not a field: the palette is a dialog that opens at the top centre, as dialogs do,
+           and a box drawn as a field would promise typing where it sits. It is named by the palette's
+           own word for what it lists, and shows the key, which is half of what the palette teaches. -->
       <button
         type="button"
         data-testid="toolbar-commands"
-        class="inline-flex h-7 w-[200px] flex-none cursor-pointer items-center gap-1.5 rounded-md border border-border bg-input pl-2 pr-1.5 font-sans text-[12px] text-dim hover:border-muted hover:text-muted"
-        :aria-label="t('commandPalette.open')"
+        class="inline-flex h-7 flex-none cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 font-sans text-[13px] text-muted hover:bg-hover hover:text-fg"
+        :title="t(keymapLabelKey('command-palette'))"
         @click="openCommandPalette"
       >
-        <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">search</span>
-        <span class="flex-auto text-left">{{ t("toolbar.commands") }}</span>
-        <span v-if="paletteBinding" class="rounded border border-border px-[5px] py-px font-mono text-[11px]">{{ paletteBinding }}</span>
+        {{ t("commandPalette.open") }}
+        <span v-if="paletteBinding" class="rounded border border-border px-[5px] py-px font-mono text-[11px] text-dim" aria-hidden="true">{{
+          paletteBinding
+        }}</span>
       </button>
       <NotificationBell />
       <LauncherButton icon="settings" title="Settings" label="Settings" @click="emit('settings')" />

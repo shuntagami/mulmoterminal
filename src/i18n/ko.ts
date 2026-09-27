@@ -565,7 +565,7 @@ export const ko: Messages = {
 
   // 2타 단축키가 두 번째 키를 기다리는 동안 보이는 안내 (#2265).
   commandPalette: {
-    open: "명령",
+    open: "동작",
     placeholder: "이름으로 동작 실행",
     close: "명령 팔레트 닫기",
     empty: "일치하는 동작이 없습니다.",
@@ -631,7 +631,6 @@ export const ko: Messages = {
     page: "{n}페이지",
     phone: { online: "휴대폰 연결됨", reconnecting: "휴대폰 다시 연결 중…", offline: "휴대폰 연결 끊김", open: "휴대폰 연결 설정" },
     sound: { label: "알림음", blocked: "브라우저가 막고 있습니다. 페이지 아무 곳이나 클릭하면 소리가 납니다" },
-    commands: "명령 검색",
   },
   rowMenu: {
     trigger: "이 터미널 작업",

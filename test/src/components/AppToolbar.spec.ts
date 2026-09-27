@@ -8,6 +8,7 @@ import { collectionChatKey } from "../../../src/composables/collectionChatKey";
 import type { SpawnedChatRequest } from "../../../src/composables/useSpawnedChat";
 import type { Shortcut } from "../../../common/shortcuts";
 import { closeCommandPalette, paletteOpen } from "../../../src/composables/commandPalette";
+import { setActiveKeymap } from "../../../src/composables/activeKeymap";
 import { useAppConfig } from "../../../src/composables/useAppConfig";
 import { setWorklogEnabled } from "../../../src/composables/worklog";
 import { roomsExist } from "../../../src/composables/useRooms";
@@ -280,5 +281,22 @@ describe("AppToolbar — command palette", () => {
     expect(document.querySelector('[data-testid="command-palette"]')).not.toBeNull();
     closeCommandPalette();
     wrapper.unmount();
+  });
+
+  // A button named by the palette's own word for what it lists, not a search field: the dialog opens
+  // at the top centre, so nothing up here may look like the place to type. The key rides along once
+  // one is bound, since teaching the key is half of what the palette is for.
+  it("reads as the palette's own word, with its key once one is bound", async () => {
+    const unbound = await mountAt("/terminals");
+    const button = unbound.get("[data-testid='toolbar-commands']");
+    expect(button.text()).toBe("Actions");
+    expect(button.find("input").exists()).toBe(false);
+    unbound.unmount();
+
+    setActiveKeymap({ "command-palette": "Ctrl+k" });
+    const bound = await mountAt("/terminals");
+    expect(bound.get("[data-testid='toolbar-commands']").text()).toMatch(/^Actions\s+Ctrl\+k$/);
+    bound.unmount();
+    setActiveKeymap(undefined);
   });
 });

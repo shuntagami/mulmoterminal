@@ -552,7 +552,7 @@ export const zhCN: Messages = {
 
   // 双键快捷键等待第二个键时显示的提示（#2265）。
   commandPalette: {
-    open: "命令",
+    open: "操作",
     placeholder: "按名称运行操作",
     close: "关闭命令面板",
     empty: "没有匹配的操作。",
@@ -618,7 +618,6 @@ export const zhCN: Messages = {
     page: "第 {n} 页",
     phone: { online: "手机已连接", reconnecting: "手机正在重新连接…", offline: "手机已断开", open: "手机连接设置" },
     sound: { label: "提示音", blocked: "浏览器阻止了声音——点击页面任意位置即可允许" },
-    commands: "搜索命令",
   },
   rowMenu: {
     trigger: "此终端的操作",

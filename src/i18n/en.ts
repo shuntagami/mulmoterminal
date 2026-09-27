@@ -584,7 +584,7 @@ export const en = {
 
   // The hint shown while a two-key shortcut waits for its second key (#2265).
   commandPalette: {
-    open: "Commands",
+    open: "Actions",
     placeholder: "Run an action by name",
     close: "Close the command palette",
     empty: "No action matches that.",
@@ -654,7 +654,6 @@ export const en = {
     page: "Page {n}",
     phone: { online: "Phone connected", reconnecting: "Phone reconnecting…", offline: "Phone disconnected", open: "Phone link settings" },
     sound: { label: "Attention sound", blocked: "The browser is blocking it — click anywhere on the page to allow sound" },
-    commands: "Search commands",
   },
   // The cockpit roster row's ⋮ menu (#2299).
   rowMenu: {
