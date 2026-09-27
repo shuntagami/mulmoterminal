@@ -56,6 +56,7 @@ function relaunch() {
 <template>
   <CellShell
     :expanded="expanded"
+    :tile="!zoomed"
     :right-pane="rightPane"
     :home="home"
     :cwd="cwd"
@@ -65,6 +66,8 @@ function relaunch() {
     icon="rocket_launch"
     :label="launcher.label"
     v-on="shellEvents"
+    @drag-handle="(event: DragEvent) => emit('drag-handle', event)"
+    @drag-end="emit('drag-end')"
   >
     <template #actions>
       <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">

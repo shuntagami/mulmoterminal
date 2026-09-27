@@ -37,10 +37,13 @@ const iconOf = (w: { find: (s: string) => { exists: () => boolean; attributes: (
 
 // The icon takes the browser-tab position — FIRST in its header, ahead of the status dot. Pinned
 // because it is a placement decision, not an accident: reading the row starts with which project
-// this is, and a later chip added at the front would quietly undo that.
+// this is, and a later chip added at the front would quietly undo that. The one thing allowed before
+// it is a tile's drag handle, which is a grip rather than something to read.
 const leads = (w: { element: Element }): boolean => {
   const icon = w.element.querySelector('img[data-testid="dir-icon"]');
-  return icon !== null && icon.parentElement?.firstElementChild === icon;
+  if (icon === null) return false;
+  const first = icon.parentElement?.firstElementChild;
+  return first === icon || (first?.getAttribute("data-testid") === "cell-drag" && first.nextElementSibling === icon);
 };
 
 describe("DirIcon", () => {

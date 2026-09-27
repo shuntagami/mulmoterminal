@@ -63,7 +63,10 @@ export interface GridCellEmits {
   // `open-canvas` comes from a control on a cell that may be TILED — the unread-canvas chip — and
   // means: enlarge me AND open that pane, in one gesture. `toggle-panel` acts on the cell as it is,
   // so pressed on a tile it only records what that cell should show once it IS enlarged (#1378).
-  (e: "toggle-expand" | "toggle-panel" | "close" | "open-canvas"): void;
+  (e: "toggle-expand" | "toggle-panel" | "close" | "open-canvas" | "drag-end"): void;
+  // The drag handle at the head of a TILE's header was picked up. The grid owns the reorder, so the
+  // cell only reports it — with the event, which carries the dataTransfer the grid fills in.
+  (e: "drag-handle", event: DragEvent): void;
   // Report activity up so the grid can attention-sort in auto mode.
   (e: "status", value: AttentionStatus): void;
 }

@@ -122,9 +122,63 @@ const mountGrid = async () => {
 // A TerminalGrid stub that exposes the ordering props the roster/grid receive.
 const OrderStub = {
   name: "TerminalGrid",
-  props: ["cells", "listRows", "expandedUid", "reorderable"],
+  props: ["cells", "listRows", "expandedUid"],
   template: '<div class="order-stub" />',
 };
+
+// A drag in the tiled grid reports "beside this tile". The grid sees one page, so "after the last
+// tile on it" can only be resolved here, against the whole order — and touching the order makes it
+// manual, starting from what was on screen.
+describe("GridView tile reorder", () => {
+  const mountOrdered = async (sortMode: "manual" | "auto", count: number) => {
+    localStorage.setItem(
+      "grid_v2",
+      // Distinct sessions for every cell: more than a page of them, so no id may repeat.
+      JSON.stringify({
+        cells: Array.from({ length: count }, (_, i) => ({ uid: i, session: `${String(i).padStart(8, "0")}-bbbb-bbbb-bbbb-bbbbbbbbbbbb`, cwd: "/w" })),
+        expanded: null,
+        page: 0,
+        sortMode,
+      }),
+    );
+    const w = mount(GridView, { global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } } });
+    await flushPromises();
+    return w;
+  };
+  const orderOf = (w: ReturnType<typeof mount>): number[] =>
+    w
+      .findComponent(OrderStub)
+      .props("cells")
+      .map((c: { uid: number }) => c.uid);
+
+  it("puts a tile after another, and before one", async () => {
+    const w = await mountOrdered("manual", 3);
+    w.findComponent(OrderStub).vm.$emit("move-beside", 0, 2, true);
+    await flushPromises();
+    expect(orderOf(w)).toEqual([1, 2, 0]);
+    w.findComponent(OrderStub).vm.$emit("move-beside", 0, 1, false);
+    await flushPromises();
+    expect(orderOf(w)).toEqual([0, 1, 2]);
+    w.unmount();
+  });
+
+  // The last tile of page one has its successor on page two, which the grid never saw.
+  it("resolves 'after the last tile on the page' against the whole order", async () => {
+    const w = await mountOrdered("manual", PAGE_SIZE + 2);
+    w.findComponent(OrderStub).vm.$emit("move-beside", 0, PAGE_SIZE - 1, true);
+    await flushPromises();
+    expect(orderOf(w).slice(0, PAGE_SIZE)).toEqual([...Array.from({ length: PAGE_SIZE - 1 }, (_, i) => i + 1), 0]);
+    w.unmount();
+  });
+
+  it("switches the order to manual when a drag starts", async () => {
+    const w = await mountOrdered("auto", 3);
+    w.findComponent(OrderStub).vm.$emit("manual-order");
+    await flushPromises();
+    expect(JSON.parse(localStorage.getItem("grid_v2") ?? "{}").sortMode).toBe("manual");
+    w.unmount();
+  });
+});
 
 describe("GridView roster ordering (#720)", () => {
   it("orders the cockpit roster (listRows) attention-first in auto mode, matching the grid", async () => {
@@ -322,7 +376,7 @@ const uuid = (n: number) => `${String(n % 10).repeat(8)}-aaaa-aaaa-aaaa-aaaaaaaa
 // way the real grid does when a terminal takes the cursor.
 const ShortcutGridStub = {
   name: "TerminalGrid",
-  props: ["cells", "listRows", "expandedUid", "reorderable"],
+  props: ["cells", "listRows", "expandedUid"],
   emits: ["focus-cell"],
   template: '<div class="shortcut-stub" />',
 };

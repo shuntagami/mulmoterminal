@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mount, flushPromises, DOMWrapper } from "@vue/test-utils";
+import { mount, flushPromises } from "@vue/test-utils";
 import { h, nextTick, type VNode } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
@@ -30,7 +30,7 @@ vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
     props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "rightPane"],
-    emits: ["toggle-expand", "toggle-panel", "session", "cwd", "run", "close", "status", "canvas"],
+    emits: ["toggle-expand", "toggle-panel", "session", "cwd", "run", "close", "status", "canvas", "drag-handle", "drag-end"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -74,7 +74,7 @@ vi.mock("../../../src/components/CollectionsPane.vue", () => ({
 
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
 const cmdCell = (uid: number, command: NonNullable<Cell["command"]>): Cell => ({ uid, session: null, cwd: null, command });
-const mountGrid = (cells: Cell[], expandedUid: number | null = null, reorderable = false) =>
+const mountGrid = (cells: Cell[], expandedUid: number | null = null) =>
   mount(TerminalGrid, {
     props: {
       cells,
@@ -86,10 +86,17 @@ const mountGrid = (cells: Cell[], expandedUid: number | null = null, reorderable
       home: "/work",
       openSessionIds: [],
       openCwds: [],
-      reorderable,
       listMode: true,
     },
   });
+// A drag, by hand: jsdom has no DragEvent, so the event is a plain one with the fields stated.
+const dragTransfer = () => ({ effectAllowed: "", dropEffect: "", setData: vi.fn(), setDragImage: vi.fn() });
+const fireEvent = (el: Element, type: string, props: Record<string, unknown> = {}) => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  for (const [key, value] of Object.entries(props)) Object.defineProperty(event, key, { value, configurable: true });
+  el.dispatchEvent(event);
+  return event;
+};
 const cellsOf = (w: ReturnType<typeof mount>) => w.findAllComponents({ name: "TerminalCell" });
 const commandCellsOf = (w: ReturnType<typeof mount>) => w.findAllComponents({ name: "CommandCell" });
 
@@ -112,7 +119,7 @@ const rosterRow = (uid: number, over: Partial<CockpitRow> = {}): CockpitRow => (
   parked: false,
   ...over,
 });
-const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], reorderable = false, listMode = true) =>
+const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], listMode = true) =>
   mount(TerminalGrid, {
     props: {
       cells,
@@ -124,10 +131,81 @@ const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[]
       home: "/work",
       openSessionIds: [],
       openCwds: [],
-      reorderable,
       listMode,
     },
   });
+
+// The tiled grid reorders by the same gesture as the roster: the handle at the head of a tile's
+// header. The real tile moves as the pointer goes — a tile is a live terminal, and moving it IS the
+// preview — so each new slot is reported once, beside a tile, and the parent resolves it against the
+// whole order (this component only sees one page). jsdom has no DragEvent and zero-sized rects, so
+// the events and the geometry are stated by hand.
+describe("TerminalGrid tiled drag-and-drop reorder", () => {
+  const transfer = dragTransfer;
+  const fire = fireEvent;
+  const pickUp = (w: ReturnType<typeof mount>, nth: number, dt = transfer()) => {
+    cellsOf(w)[nth].vm.$emit("drag-handle", Object.assign(new Event("dragstart"), { dataTransfer: dt }));
+    return dt;
+  };
+  // A tile 100px wide starting at x=200: its halves split at 250.
+  const placed = (el: Element) => {
+    Object.defineProperty(el, "getBoundingClientRect", {
+      value: () => ({ left: 200, width: 100, right: 300, top: 0, height: 100, bottom: 100, x: 200, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    return el;
+  };
+  const three = () => [cell(0, "s0"), cell(1, "s1"), cell(2, "s2")];
+
+  it("asks for manual order the moment a tile is picked up, carrying no plain text", async () => {
+    const w = mountGrid(three());
+    const dt = pickUp(w, 0);
+    expect(w.emitted("manual-order")).toHaveLength(1);
+    // Not text/plain: released over a terminal, plain text is what an editable takes as typing.
+    expect(dt.setData).toHaveBeenCalledWith("application/x-mulmoterminal-tile", "0");
+    w.unmount();
+  });
+
+  it("names the tile it is over and which half, once per slot", async () => {
+    const w = mountGrid(three());
+    pickUp(w, 0);
+    const tile = placed(cellsOf(w)[2].element);
+    const over = fire(tile, "dragover", { clientX: 280, dataTransfer: transfer() });
+    expect(over.defaultPrevented).toBe(true);
+    expect(w.emitted("move-beside")).toEqual([[0, 2, true]]);
+    fire(tile, "dragover", { clientX: 290, dataTransfer: transfer() }); // same slot: nothing new
+    expect(w.emitted("move-beside")).toHaveLength(1);
+    fire(tile, "dragover", { clientX: 210, dataTransfer: transfer() }); // left half: before it
+    expect(w.emitted("move-beside")?.[1]).toEqual([0, 2, false]);
+    w.unmount();
+  });
+
+  // The move already happened; the drop must not fall through to the browser's own, over a terminal.
+  it("swallows the drop and ends the drag", async () => {
+    const w = mountGrid(three());
+    pickUp(w, 0);
+    const tile = placed(cellsOf(w)[1].element);
+    expect(fire(tile, "drop", { dataTransfer: transfer() }).defaultPrevented).toBe(true);
+    expect(fire(tile, "dragover", { clientX: 280, dataTransfer: transfer() }).defaultPrevented).toBe(false);
+    w.unmount();
+  });
+
+  // A file dragged onto a terminal is the terminal's business, not a reorder.
+  it("leaves a drag it did not start alone", async () => {
+    const w = mountGrid(three());
+    const over = fire(placed(cellsOf(w)[1].element), "dragover", { clientX: 280, dataTransfer: transfer() });
+    expect(over.defaultPrevented).toBe(false);
+    expect(w.emitted("move-beside")).toBeUndefined();
+    w.unmount();
+  });
+
+  it("does nothing while a cell is enlarged — the roster is where that reorders", async () => {
+    const w = mountGrid(three(), 1);
+    pickUp(w, 0);
+    expect(w.emitted("manual-order")).toBeUndefined();
+    w.unmount();
+  });
+});
 
 describe("TerminalGrid (page renderer)", () => {
   it("renders one TerminalCell per cell", () => {
@@ -173,23 +251,13 @@ describe("TerminalGrid (page renderer)", () => {
     expect(rows[0].classes()).not.toContain("opacity-45");
   });
 
-  it("puts a ⋮ reorder menu on cockpit rows only in manual mode, emitting move tagged with uid", async () => {
-    const cells = [cell(0, "s0"), cell(1, "s1"), cell(2)]; // two running + a trailing launch cell
-    const rows = [rosterRow(0), rosterRow(1)];
-    // auto mode (reorderable = false): the roster renders but carries no ⋮
-    const auto = mountCockpit(cells, 0, rows);
+  // The drag is the one pointer route to a reorder, in every order mode: the ⋮ up/down menu that sat
+  // beside the handle was a second one to the same thing. The keyboard's is the command palette's.
+  it("offers no ⋮ reorder menu on cockpit rows", async () => {
+    const w = mountCockpit([cell(0, "s0"), cell(1, "s1"), cell(2)], 0, [rosterRow(0), rosterRow(1)]);
     await nextTick();
-    expect(auto.findAll('[data-testid="cockpit-row"]')).toHaveLength(2); // roster is shown
-    expect(auto.find('[data-testid="cockpit-reorder"]').exists()).toBe(false);
-    // manual mode: a ⋮ per row, and moving the 2nd row up emits move tagged with its uid
-    const w = mountCockpit(cells, 0, rows, true);
-    await nextTick();
-    const kebabs = w.findAll('[data-testid="cockpit-reorder"]');
-    expect(kebabs).toHaveLength(2);
-    await kebabs[1].trigger("click");
-    // the dropdown is teleported to <body>, so reach it through the document
-    await new DOMWrapper(document.querySelector('[data-testid="reorder-up"]') as Element).trigger("click");
-    expect(w.emitted("move")?.[0]).toEqual([1, -1]);
+    expect(w.findAll('[data-testid="cockpit-row"]')).toHaveLength(2);
+    expect(w.find('[data-testid="cockpit-reorder"]').exists()).toBe(false);
     w.unmount();
   });
 
@@ -204,13 +272,8 @@ describe("TerminalGrid (page renderer)", () => {
     const dragRows = [rosterRow(0), rosterRow(1), rosterRow(2)];
     const ROW_H = 100;
 
-    const transfer = () => ({ effectAllowed: "", dropEffect: "", setData: vi.fn(), setDragImage: vi.fn() });
-    const fire = (el: Element, type: string, props: Record<string, unknown> = {}) => {
-      const event = new Event(type, { bubbles: true, cancelable: true });
-      for (const [key, value] of Object.entries(props)) Object.defineProperty(event, key, { value, configurable: true });
-      el.dispatchEvent(event);
-      return event;
-    };
+    const transfer = dragTransfer;
+    const fire = fireEvent;
 
     const rowsOf = (w: ReturnType<typeof mount>) => w.findAll('[data-testid="cockpit-row"]');
     // The rendered order, which is the preview while a drag is in flight.
@@ -232,8 +295,8 @@ describe("TerminalGrid (page renderer)", () => {
       });
     };
 
-    const mountDrag = async (cells = dragCells, rows = dragRows, reorderable = true) => {
-      const w = mountCockpit(cells, 0, rows, reorderable);
+    const mountDrag = async (cells = dragCells, rows = dragRows) => {
+      const w = mountCockpit(cells, 0, rows);
       await nextTick();
       layout(w);
       return { w, roster: w.get('[data-testid="cockpit"]').element };
@@ -248,12 +311,13 @@ describe("TerminalGrid (page renderer)", () => {
       return event;
     };
 
-    it("puts a drag handle on every row in manual mode and none in auto", async () => {
+    // Whatever the order mode: touching the order makes it the user's, so a drag asks the parent to
+    // switch to manual (adopting what is on screen) the moment it starts.
+    it("puts a drag handle on every row, and a drag asks for manual order as it starts", async () => {
       const { w } = await mountDrag();
       expect(w.findAll('[data-testid="cockpit-drag"]')).toHaveLength(3);
-      const auto = mountCockpit(dragCells, 0, dragRows, false);
-      await nextTick();
-      expect(auto.find('[data-testid="cockpit-drag"]').exists()).toBe(false);
+      startDrag(w, 1);
+      expect(w.emitted("manual-order")).toHaveLength(1);
     });
 
     // The ghost has to be the ROW — the handle is 16px, so the browser's default would be 16px of
@@ -796,7 +860,7 @@ describe("file pane beside the enlarged cell", () => {
     ["list", true],
     ["strip", false],
   ])("puts the pane beside the enlarged terminal in %s mode", async (_name, listMode) => {
-    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], listMode);
     await openPane(w);
     const row = w.find(".zoom-main").element.parentElement;
     expect(row?.contains(paneOf(w).element)).toBe(true);
@@ -1526,7 +1590,7 @@ describe("prompts pane beside the enlarged cell", () => {
     ["list", true],
     ["strip", false],
   ])("opens beside the enlarged terminal in %s mode", async (_name, listMode) => {
-    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], listMode);
     expect(paneOf(w).exists()).toBe(false);
     await openPrompts(w);
     expect(paneOf(w).exists()).toBe(true);

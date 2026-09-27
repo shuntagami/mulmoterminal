@@ -3,14 +3,13 @@ import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick
 import TerminalCell from "./TerminalCell.vue";
 import CommandCell from "./CommandCell.vue";
 import LauncherCell from "./LauncherCell.vue";
-import CockpitRowMenu from "./CockpitRowMenu.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import * as conn from "../composables/useTerminalConnections";
 import { trackStyle, layoutForCount } from "./gridLayout";
 import { cockpitLines } from "../composables/cockpitLines";
 import { dragSplitter } from "../composables/dragSplitter";
 import { flipKeyframes, flipPairs, onScreen, FLIP_MS, FLIP_EASING } from "./cellFlip";
-import { canDropCellBefore, canMoveCell, reorderBefore, type Cell } from "./gridTabs";
+import { canDropCellBefore, reorderBefore, type Cell } from "./gridTabs";
 import { dropBeforeUid, dropSlot, pointerInside, type RowBox } from "./rosterDrag";
 import type { AttentionStatus } from "./attentionStatus";
 import { cellPlacement, teleportKey, type CellPlacement } from "./cellTeleport";
@@ -114,8 +113,6 @@ const props = defineProps<{
   customAgents?: CustomAgent[];
   accounts?: AgentAccount[];
   home: string | null;
-  // Manual sort mode: each cell shows move buttons to reorder.
-  reorderable?: boolean;
   openSessionIds: string[];
   openCwds: string[];
   // While a cell is zoomed: cockpit roster (true) vs thumbnail strip (false). Owned by GridView
@@ -127,17 +124,22 @@ const emit = defineEmits<{
   (e: "close" | "toggle-expand" | "focus-cell", uid: number): void;
   (e: "run" | "runSpare", uid: number, command: RunCommand): void;
   (e: "launch", uid: number, pick: LaunchPick): void;
-  (e: "move", uid: number, dir: -1 | 1): void;
-  // Manual reorder to an arbitrary slot (the roster's drag handle): put `uid` in front of
-  // `beforeUid`, or at the end of the list when that is null.
+  // Reorder to an arbitrary slot (the roster's drag handle): put `uid` in front of `beforeUid`, or at
+  // the end of the list when that is null.
   (e: "move-before", uid: number, beforeUid: number | null): void;
+  // The tiled grid's drag: put `uid` right before or right after `target`. Beside a TILE rather than
+  // before a uid, because a tile at the end of a page has its successor on the next page, which this
+  // component never sees — the parent, which owns the whole order, resolves it.
+  (e: "move-beside", uid: number, target: number, after: boolean): void;
   (e: "status", uid: number, value: AttentionStatus): void;
   (e: "agent", uid: number, value: AgentReport): void;
   (e: "park", uid: number, value: boolean): void;
   // Shared preset list events — uid-less since they mutate the one config list.
   (e: "record-cwd" | "remove-preset", value: string): void;
-  // Read the config again, after it could not be read at all — uid-less for the same reason.
-  (e: "retry-config"): void;
+  // `retry-config`: read the config again, after it could not be read at all — uid-less for the
+  // same reason. `manual-order`: a drag has started, so whatever the order mode the order is about
+  // to be the user's, starting from what is on screen; the parent adopts it and switches to manual.
+  (e: "retry-config" | "manual-order"): void;
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
@@ -175,6 +177,8 @@ function cellClass(uid: number) {
   return {
     flipping: flippingUids.value.has(uid),
     focused: uid === focusedUid.value && props.expandedUid === null && !flippingUids.value.has(uid),
+    // The tile being dragged, dimmed so the one moving is told apart from the ones making room.
+    "opacity-50": uid === tileDragUid.value,
   };
 }
 // Hand the flip's timing to the stylesheet so the fade under it can't drift out of sync.
@@ -892,6 +896,8 @@ const gridCellEvents = (cell: Cell) => ({
   // enlarged, and after #1378 two cells can want different panes.
   "toggle-panel": () => togglePanel(cell.uid),
   "open-canvas": () => openCanvasFor(cell.uid),
+  "drag-handle": (event: DragEvent) => onTileDragStart(event, cell.uid),
+  "drag-end": () => endTileDrag(),
   close: () => emit("close", cell.uid),
   status: (value: AttentionStatus) => emit("status", cell.uid, value),
 });
@@ -1283,8 +1289,10 @@ watch(
   },
 );
 
-// Dragging a roster row to an arbitrary slot (#2126). The ⋮ menu's up/down stays — it is the
-// keyboard route, and a drag cannot be one.
+// Dragging a roster row to an arbitrary slot (#2126). It is the one way to reorder by pointer, in
+// every order mode: starting a drag makes the order manual (`manual-order`). The keyboard route is
+// the command palette's "Move this terminal earlier / later" — the ⋮ up/down menu that used to sit
+// beside the handle was a second pointer route to the same thing.
 //
 // The DRAG SOURCE is the handle inside the row, not the row: the row body's click is what swaps
 // which terminal is enlarged, so making it draggable would put a reorder and a navigation on the
@@ -1328,9 +1336,9 @@ const endRosterDrag = () => {
 };
 
 function onRowDragStart(event: DragEvent, uid: number) {
-  if (!props.reorderable) return;
   endRosterDrag(); // a drag that somehow never ended must not leave its target for this one to commit
   dragUid.value = uid;
+  emit("manual-order");
   window.addEventListener("keydown", onRosterDragKey);
   const dt = event.dataTransfer;
   if (!dt) return;
@@ -1410,6 +1418,61 @@ function onRosterDrop(event: DragEvent) {
   if (dragUid.value === null) return;
   event.preventDefault();
   commitRosterDrag();
+}
+
+// Dragging a TILE in the tiled grid — the same gesture as the roster's, on the handle at the head of
+// each cell's header. The move is committed as the pointer goes rather than previewed: a tile is a
+// live terminal, and moving the real one is the preview. Each new slot is emitted once — the tile
+// that lands under a still pointer is the dragged one itself, which is ignored, so it cannot
+// oscillate.
+const tileDragUid = ref<number | null>(null);
+let tileSlot: string | null = null;
+
+function onTileDragStart(event: DragEvent, uid: number) {
+  if (zoomed.value) return; // the enlarged views reorder from the roster
+  tileDragUid.value = uid;
+  tileSlot = null;
+  emit("manual-order");
+  const dt = event.dataTransfer;
+  if (!dt) return;
+  dt.effectAllowed = "move";
+  // Firefox starts no drag at all unless the transfer carries something. Not `text/plain`, unlike the
+  // roster's: a tile is dragged OVER terminals, and plain text released on one is text an editable
+  // under the pointer would take as typing.
+  dt.setData("application/x-mulmoterminal-tile", String(uid));
+  // The whole tile as the ghost, not the 16px handle: it says what is being moved.
+  const tile = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-uid]") : null;
+  if (tile) dt.setDragImage(tile, 16, 16);
+}
+
+function onTileDragOver(event: DragEvent) {
+  const uid = tileDragUid.value;
+  if (uid === null) return; // someone else's drag (a file dropped on a terminal) — leave it alone
+  event.preventDefault(); // required for `drop` to fire at all
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  const tile = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-uid]") : null;
+  const target = Number(tile?.dataset.uid);
+  if (!tile || !Number.isInteger(target) || target === uid) return;
+  // The grid fills row by row, so which half of the tile the pointer is in says before or after.
+  const rect = tile.getBoundingClientRect();
+  const after = event.clientX > rect.left + rect.width / 2;
+  const slot = `${target}:${after}`;
+  if (slot === tileSlot) return;
+  tileSlot = slot;
+  emit("move-beside", uid, target, after);
+}
+
+function endTileDrag() {
+  tileDragUid.value = null;
+  tileSlot = null;
+}
+
+// The drop itself changes nothing — the move already happened as the pointer went — but it must not
+// fall through to the browser's own drop, over a terminal of all places.
+function onTileDrop(event: DragEvent) {
+  if (tileDragUid.value === null) return;
+  event.preventDefault();
+  endTileDrag();
 }
 
 // Escape cancels a drag, and `dragend` reports it exactly as it reports a drop the browser
@@ -1504,11 +1567,10 @@ function onRosterDragLeave(event: DragEvent) {
             :phase="row.phase"
           >
             <!-- The drag handle. A span rather than a button, and aria-hidden: a drag is not a
-               keyboard gesture, and the ⋮ beside it is the accessible route to the same reorder.
-               `@click.stop` keeps a press that never became a drag from swapping the enlarged
-               terminal, which is the row's own click. -->
+               keyboard gesture, and the command palette's "Move this terminal earlier / later" is
+               the accessible route to the same reorder. `@click.stop` keeps a press that never
+               became a drag from swapping the enlarged terminal, which is the row's own click. -->
             <span
-              v-if="reorderable"
               data-testid="cockpit-drag"
               class="material-symbols-outlined flex-none cursor-grab text-[16px] leading-none text-dim hover:text-fg active:cursor-grabbing"
               draggable="true"
@@ -1519,12 +1581,6 @@ function onRosterDragLeave(event: DragEvent) {
               @dragend="commitRosterDrag"
               >drag_indicator</span
             >
-            <CockpitRowMenu
-              v-if="reorderable"
-              :can-up="canMoveCell(cells, row.uid, -1)"
-              :can-down="canMoveCell(cells, row.uid, 1)"
-              @move="(dir) => emit('move', row.uid, dir)"
-            />
           </CockpitHeader>
           <!-- The user's own note, above every line below it: those are what the AGENT said, and the
              memo is the user saying what the cell is FOR (#1084) — the same precedence the cell
@@ -1756,7 +1812,7 @@ function onRosterDragLeave(event: DragEvent) {
     <!-- In strip mode the grid IS the thumbnail strip, and its height is the user's (#1077). The
          stylesheet's `flex: 0 0 150px` stays as the default; an inline basis outranks it, and is
          bound only in that mode so it cannot reach the tiled grid or list mode's off-screen one. -->
-    <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]">
+    <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]" @dragover="onTileDragOver" @drop="onTileDrop">
       <!-- Two places a cell can be shown somewhere else, and the collection pane wins while it is
            open — it is an overlay ON TOP of the grid, so the zoom underneath is not on screen
            (#2001). Same mechanism either way: the cell is MOVED, never re-created, so its socket,

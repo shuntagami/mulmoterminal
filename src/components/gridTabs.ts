@@ -463,6 +463,16 @@ export function adoptManualOrder(state: GridState, displayed: readonly Cell[]): 
   return { ...state, sortMode: "manual", cells: same ? displayed.slice() : state.cells };
 }
 
+// A tile dropped beside another (the tiled grid's drag). The grid only sees one page, so "after the
+// last tile on it" means the cell that follows `target` in the WHOLE order — or the end — and only
+// the full list can say which that is. Makes the order manual, like any reorder.
+export function moveBeside(state: GridState, displayed: readonly Cell[], uid: number, target: number, after: boolean): GridState {
+  const adopted = adoptManualOrder(state, displayed);
+  const at = adopted.cells.findIndex((c) => c.uid === target);
+  if (at < 0) return state;
+  return moveCellBefore(adopted, uid, after ? (adopted.cells[at + 1]?.uid ?? null) : target);
+}
+
 // Whether moveCell would actually reorder: not off either end, and never swapping a cell past
 // the trailing launch cell (it stays last so "+ Terminal"/cancel keep working on it). Drives the
 // enabled/disabled state of the roster's up/down menu items.

@@ -14,6 +14,7 @@ import { computed, toRef } from "vue";
 import DirBadge from "./DirBadge.vue";
 import DirIcon from "./DirIcon.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import CellDragHandle from "./CellDragHandle.vue";
 import { cellChromeBinding, type CellChromeSource } from "./cellChromeBinding";
 import { useCellChrome } from "../composables/useCellChrome";
 import { formatCwd } from "./cwdDisplay";
@@ -54,10 +55,13 @@ const props = defineProps<
     // Material Symbols name and the text beside it: the cell says what it is running.
     icon: string;
     label: string;
+    // A tile in the tiled grid, so it carries the drag handle. The enlarged views reorder from the
+    // roster instead.
+    tile?: boolean | undefined;
   }
 >();
 
-const emit = defineEmits<{ (e: "toggle-expand" | "toggle-panel" | "close"): void }>();
+const emit = defineEmits<{ (e: "toggle-expand" | "toggle-panel" | "close" | "drag-end"): void; (e: "drag-handle", event: DragEvent): void }>();
 
 const { chromeProps, chromeEvents } = cellChromeBinding(props, emit);
 
@@ -86,6 +90,7 @@ function onHeaderClick(event: MouseEvent) {
     <div :class="CELL_INNER">
       <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" :style="headerStyle" @click="onHeaderClick">
         <!-- Leads the row, ahead of the status dot — the browser-tab position (see TerminalCell). -->
+        <CellDragHandle v-if="tile" @pick="(event) => emit('drag-handle', event)" @end="emit('drag-end')" />
         <DirIcon :src="dirConfig.iconUrl" />
         <span
           class="cell-dot"

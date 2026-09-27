@@ -26,6 +26,7 @@ import {
   reorderBefore,
   setSortMode,
   adoptManualOrder,
+  moveBeside,
   moveCell,
   moveCellBefore,
   moveZoom,
@@ -840,6 +841,32 @@ describe("adoptManualOrder", () => {
     const next = adoptManualOrder(s, [s.cells[1]]);
     expect(next.sortMode).toBe("manual");
     expect(next.cells).toBe(s.cells);
+  });
+});
+
+describe("moveBeside", () => {
+  it("puts a cell right after or right before another", () => {
+    const s = make(running(4));
+    expect(moveBeside(s, s.cells, 0, 2, true).cells.map((c) => c.uid)).toEqual([1, 2, 0, 3]);
+    expect(moveBeside(s, s.cells, 3, 1, false).cells.map((c) => c.uid)).toEqual([0, 3, 1, 2]);
+  });
+
+  // After the LAST cell is the end of the list, which is a real destination.
+  it("puts a cell at the end when it goes after the last one", () => {
+    const s = make(running(3));
+    expect(moveBeside(s, s.cells, 0, 2, true).cells.map((c) => c.uid)).toEqual([1, 2, 0]);
+  });
+
+  it("goes manual from what was on screen", () => {
+    const s = make(running(3), { sortMode: "auto" });
+    const next = moveBeside(s, [s.cells[2], s.cells[0], s.cells[1]], 1, 2, false);
+    expect(next.sortMode).toBe("manual");
+    expect(next.cells.map((c) => c.uid)).toEqual([1, 2, 0]);
+  });
+
+  it("changes nothing for a target that is not there", () => {
+    const s = make(running(3));
+    expect(moveBeside(s, s.cells, 0, 99, true)).toBe(s);
   });
 });
 

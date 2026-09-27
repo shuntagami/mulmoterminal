@@ -46,6 +46,7 @@ import TimelineOverlay from "./TimelineOverlay.vue";
 import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import CellDragHandle from "./CellDragHandle.vue";
 import CellMenu, { type CellMenuItem, type CellMenuSection } from "./CellMenu.vue";
 import { isCellSunk, SUNK_CELL, SUNK_DOT_STATUS } from "./cellParked";
 import { cellChromeBinding } from "./cellChromeBinding";
@@ -1534,6 +1535,8 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                  project icon is read the way a favicon is — you find the tab by its picture before
                  you read anything. Everything after it says what the cell is DOING; the icon says
                  which project it is, and that is the first question. -->
+            <!-- The drag handle, on a tile only: the enlarged views reorder from the roster. -->
+            <CellDragHandle v-if="!zoomed" @pick="(event) => emit('drag-handle', event)" @end="emit('drag-end')" />
             <DirIcon :src="dirConfig.iconUrl" />
             <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass, dotMissedClass]" :title="statusLabel" />
             <!-- After the dot, not instead of the picture before it: the icon says which PROJECT,

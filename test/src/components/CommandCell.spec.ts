@@ -28,6 +28,24 @@ const mountCell = () => mount(CommandCell, { props: { expanded: false, command: 
 const term = (w: ReturnType<typeof mount>) => w.findComponent({ name: "TerminalView" });
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
+// Every tile carries the same drag handle, the command cell included — reordering is one gesture
+// across the grid, not a per-cell-type feature.
+describe("CommandCell drag handle", () => {
+  it("carries the handle as a tile and forwards the pickup", async () => {
+    const w = mountCell();
+    const handle = w.get('[data-testid="cell-drag"]');
+    await handle.trigger("dragstart");
+    await handle.trigger("dragend");
+    expect(w.emitted("drag-handle")).toHaveLength(1);
+    expect(w.emitted("drag-end")).toHaveLength(1);
+  });
+
+  it("carries none while the grid is zoomed", () => {
+    const w = mount(CommandCell, { props: { expanded: false, zoomed: true, command: COMMAND, home: "/work" } });
+    expect(w.find('[data-testid="cell-drag"]').exists()).toBe(false);
+  });
+});
+
 describe("CommandCell", () => {
   afterEach(() => vi.unstubAllGlobals());
 

@@ -162,6 +162,29 @@ async function pickMenuItem(w: ReturnType<typeof mount>, key: string) {
   await nextTick();
 }
 
+// The drag handle heads a TILE's header — the one pointer route to a reorder. The enlarged views
+// reorder from the roster, so a zoomed cell carries none.
+describe("TerminalCell drag handle", () => {
+  it("heads a tile's header and reports the pickup to the grid", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111");
+    await flushPromises();
+    const handle = w.get('[data-testid="cell-drag"]');
+    expect(handle.attributes("draggable")).toBe("true");
+    await handle.trigger("dragstart");
+    await handle.trigger("dragend");
+    expect(w.emitted("drag-handle")).toHaveLength(1);
+    expect(w.emitted("drag-end")).toHaveLength(1);
+    w.unmount();
+  });
+
+  it("is absent while the grid is zoomed", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { zoomed: true });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-drag"]').exists()).toBe(false);
+    w.unmount();
+  });
+});
+
 describe("TerminalCell", () => {
   // #965: the whole cell — header included — sits in one wrapper, so the focus zoom can be
   // cancelled about the cell's own centre. A second element child, or content left outside the

@@ -131,6 +131,7 @@ function copyPrompt() {
 <template>
   <CellShell
     :expanded="expanded"
+    :tile="!zoomed"
     :right-pane="rightPane"
     :home="home"
     :cwd="command.cwd"
@@ -140,6 +141,8 @@ function copyPrompt() {
     icon="play_arrow"
     :label="command.label"
     v-on="shellEvents"
+    @drag-handle="(event: DragEvent) => emit('drag-handle', event)"
+    @drag-end="emit('drag-end')"
   >
     <template #actions>
       <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Re-run" aria-label="Re-run command" @click="rerun">

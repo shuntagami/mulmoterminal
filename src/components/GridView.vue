@@ -31,6 +31,7 @@ import {
   launchInCell,
   setSortMode,
   adoptManualOrder,
+  moveBeside,
   moveCell,
   moveCellBefore,
   moveZoom,
@@ -144,7 +145,6 @@ const sessionStatus = computed(() => {
 const statusForSort = computed<Record<number, AttentionStatus>>(() => resolveCellStatus(state.value.cells, sessionStatus.value, statusByUid));
 // At-a-glance tally across ALL pages, for the toolbar summary.
 const statusCounts = computed(() => countByStatus(state.value.cells, statusForSort.value));
-const reorderable = computed(() => state.value.sortMode === "manual");
 // "priority" ranks cells by their directory's orderPriority, so like the status above it needs
 // a value for cells on pages that aren't mounted — hence the whole cwd set, not per-cell.
 const cellCwds = computed(() => [...new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => !!c))]);
@@ -410,14 +410,14 @@ const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScrip
 // shell: turn it into a persistent launcher cell. Its session id arrives later via onSession.
 const onLaunch = (uid: number, pick: LaunchPick) => (state.value = launchInCell(state.value, uid, pick.launcher, pick.cwd));
 // Reordering is ONE gesture — dragging a cell's handle, in the roster or the tiled grid — plus its
-// keyboard twin, and it works in every order mode: touching the order makes it manual, starting
-// from what is on screen (adoptManualOrder). The step-wise arrows and the roster's up/down menu
-// that used to sit beside the drag are gone.
+// keyboard twin, in every order mode: touching the order makes it manual, starting from what is on
+// screen (adoptManualOrder). The step-wise arrows and the roster's up/down menu are gone.
 const onManualOrder = () => (state.value = adoptManualOrder(state.value, orderedCells.value));
-// An arbitrary slot rather than a step (#2126). Same flat list, so the tiles and the roster re-order
-// together.
+// An arbitrary slot rather than a step (#2126). One flat list: tiles and roster re-order together.
 const onMoveBefore = (uid: number, beforeUid: number | null) =>
   (state.value = moveCellBefore(adoptManualOrder(state.value, orderedCells.value), uid, beforeUid));
+// A tile dropped beside another; the whole order is here, so "after the last tile on the page" is too.
+const onMoveBeside = (uid: number, target: number, after: boolean) => (state.value = moveBeside(state.value, orderedCells.value, uid, target, after));
 // The keyboard's way to the same thing: one place earlier or later. Answers whether the shortcut was
 // one of the two, so the dispatcher below stays one branch longer rather than two.
 function runMoveShortcut(shortcut: GridShortcut, uid: number | null): boolean {
@@ -924,7 +924,6 @@ onBeforeUnmount(detachSpawnedChat);
       :custom-agents="customAgents"
       :accounts="accounts"
       :home="home"
-      :reorderable="reorderable"
       :open-session-ids="openSessionIds"
       :open-cwds="openCwds"
       :list-mode="listModeOn"
@@ -943,6 +942,7 @@ onBeforeUnmount(detachSpawnedChat);
       @launch="onLaunch"
       @manual-order="onManualOrder"
       @move-before="onMoveBefore"
+      @move-beside="onMoveBeside"
       @status="onStatus"
     />
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
