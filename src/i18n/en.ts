@@ -156,7 +156,7 @@ export const en = {
 
     sounds: {
       intro:
-        "Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The speaker button in the toolbar silences all of them at once.",
+        "Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The Attention sound switch under the toolbar's bell silences all of them at once.",
       beepAria: "Beep when a session is {kind}",
       soundFor: "Sound for {label}",
       playFor: "Play the {label} sound",
@@ -436,7 +436,7 @@ export const en = {
 
     toolbarPins: {
       intro:
-        "Collections and feeds you pinned can also sit in the toolbar itself, beside Grid and Collections — one press instead of opening Collections first and finding them in the row at its top. Choose up to {max}; the toolbar is unchanged while none is chosen.",
+        "Collections and feeds you pinned can also sit in the toolbar itself, beside Terminals and Workspace — one press instead of opening Collections first and finding them in the row at its top. Choose up to {max}; the toolbar is unchanged while none is chosen.",
       empty: "Nothing is pinned yet. Open Collections and pin a collection or a feed there first — this list offers what you pinned.",
       unavailable:
         "The pinned list is unavailable ({error}), so there is nothing to offer here. The toolbar keeps whatever it was already showing; reopen this once the list is back.",
