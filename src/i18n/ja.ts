@@ -635,7 +635,6 @@ export const ja: Messages = {
     phone: { online: "スマホ 接続中", reconnecting: "スマホ 再接続中…", offline: "スマホ 切断", open: "スマホ連携の設定" },
     sound: { label: "通知音", blocked: "ブラウザが止めています。ページのどこかをクリックすると鳴るようになります" },
     commands: "コマンドを検索",
-    movedToManual: "並び順を「手動」に切り替えました",
   },
   rowMenu: {
     trigger: "このセルの操作",

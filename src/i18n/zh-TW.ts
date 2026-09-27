@@ -624,7 +624,6 @@ export const zhTW: Messages = {
     phone: { online: "手機已連線", reconnecting: "手機正在重新連線…", offline: "手機已中斷", open: "手機連線設定" },
     sound: { label: "提示音", blocked: "瀏覽器封鎖了聲音——點一下頁面任何地方即可允許" },
     commands: "搜尋指令",
-    movedToManual: "已將排序切換為「手動」",
   },
   rowMenu: {
     trigger: "此終端機的操作",

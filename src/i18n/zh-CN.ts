@@ -619,7 +619,6 @@ export const zhCN: Messages = {
     phone: { online: "手机已连接", reconnecting: "手机正在重新连接…", offline: "手机已断开", open: "手机连接设置" },
     sound: { label: "提示音", blocked: "浏览器阻止了声音——点击页面任意位置即可允许" },
     commands: "搜索命令",
-    movedToManual: "已将排序切换为“手动”",
   },
   rowMenu: {
     trigger: "此终端的操作",

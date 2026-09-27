@@ -655,7 +655,6 @@ export const en = {
     phone: { online: "Phone connected", reconnecting: "Phone reconnecting…", offline: "Phone disconnected", open: "Phone link settings" },
     sound: { label: "Attention sound", blocked: "The browser is blocking it — click anywhere on the page to allow sound" },
     commands: "Search commands",
-    movedToManual: "Switched the order to Manual",
   },
   // The cockpit roster row's ⋮ menu (#2299).
   rowMenu: {
