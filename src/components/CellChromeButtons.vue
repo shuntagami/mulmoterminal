@@ -14,7 +14,7 @@
 //
 // No `.stop` on the clicks: the enclosing header's zoom gesture already ignores anything inside a
 // button (shouldZoomOnHeaderClick), and stopping here would only hide that.
-import { CELL_BTN, CELL_BTN_ACTIVE, CELL_CLOSE_BTN } from "./cellChromeClasses";
+import { CELL_BTN, CELL_CLOSE_BTN, CELL_LABEL_BTN, CELL_LABEL_BTN_ACTIVE } from "./cellChromeClasses";
 
 defineProps<{
   expanded: boolean;
@@ -38,13 +38,13 @@ const emit = defineEmits<{ (e: "toggle-expand" | "toggle-panel" | "close"): void
     v-if="expanded"
     type="button"
     data-testid="cell-panel-btn"
-    class="cell-btn !w-auto gap-1 px-1.5 font-sans text-[12px]"
-    :class="panelOpen ? CELL_BTN_ACTIVE : CELL_BTN"
+    class="cell-btn"
+    :class="panelOpen ? CELL_LABEL_BTN_ACTIVE : CELL_LABEL_BTN"
     :aria-pressed="!!panelOpen"
     :title="panelOpen ? 'Hide the side panel' : 'Show the side panel'"
     @click="emit('toggle-panel')"
   >
-    <span class="material-symbols-outlined" aria-hidden="true">view_sidebar</span>Panel
+    <span class="material-symbols-outlined text-[16px]" aria-hidden="true">view_sidebar</span>Panel
   </button>
   <slot />
   <button

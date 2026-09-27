@@ -93,7 +93,15 @@ export const CELL_MENU_ITEM =
 // own: a header button is not a new kind of selected thing. Note it is not `--cell-btn`-tinted —
 // a directory's chrome colour drives the IDLE ink, and letting it drive this one too would make
 // "selected" mean a different shade per directory.
-export const CELL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_BTN_SIZE} cursor-pointer bg-selected text-accent hover:bg-selected-hover hover:text-accent`;
+const CELL_BTN_INK_ACTIVE = "cursor-pointer bg-selected text-accent hover:bg-selected-hover hover:text-accent";
+export const CELL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_BTN_SIZE} ${CELL_BTN_INK_ACTIVE}`;
+// A button with a WORD on it (Panel). Its own size rather than CELL_BTN_SIZE plus overrides: that
+// size carries the 16px a lone glyph is drawn at, and a second `text-*` on the same element loses
+// or wins by Tailwind's output order — it lost, and the word came out a third bigger than every
+// other label in the header. The glyph inside sets its own 16px.
+const CELL_LABEL_BTN_SIZE = "h-[26px] gap-1 px-1.5 font-sans text-[12px]";
+export const CELL_LABEL_BTN = `${CELL_BTN_BOX} ${CELL_LABEL_BTN_SIZE} ${CELL_BTN_INK}`;
+export const CELL_LABEL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_LABEL_BTN_SIZE} ${CELL_BTN_INK_ACTIVE}`;
 export const CELL_CLOSE_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-[var(--err-hover-bg)] hover:text-err-text`;
 
 // A path clipped from the FRONT: `rtl` puts the ellipsis at the start so the tail — the
