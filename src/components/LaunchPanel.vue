@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { launchAgentPick } from "../composables/launchAgentPick";
-// The launch form, opened at the right edge over whatever the grid is showing (#1867).
+// The launch form, opened over whatever the grid is showing (#1867) — at the LEFT edge and below the
+// toolbar, so it hangs straight off the toolbar's New terminal button, which leads the row there. It
+// used to open at the right edge, across the screen from the button that opened it; where a result
+// appears should say what caused it. Below the toolbar rather than full height, so the button stays
+// in view, pressed, and pressing it again closes what it opened.
 //
 // WHY IT IS NOT A CELL: the grid has three view modes (docs/grid-view-modes.md) and a form placed
 // as a cell means three different things — a tile that pushes its neighbours along in the tiled
@@ -61,7 +65,7 @@ const account = ref<string | null>(null);
 
 const panel = ref<HTMLElement | null>(null);
 
-// Escape closes it from ANYWHERE, not only from inside the panel. The panel covers the right of
+// Escape closes it from ANYWHERE, not only from inside the panel. The panel covers the left of
 // the stage and takes focus when it opens, but a click on the uncovered grid or the toolbar moves
 // focus out — and a `@keydown.escape` bound to the <aside> then never fires, which is how "Escape
 // closes it" ended up being said without being true (CodeRabbit, #1890).
@@ -108,7 +112,7 @@ onBeforeUnmount(() => {
 <template>
   <aside
     ref="panel"
-    class="fixed inset-y-0 right-0 z-[90] flex w-[min(520px,92vw)] flex-col overflow-y-auto border-l border-border bg-base font-sans text-fg shadow-[-8px_0_24px_rgba(0,0,0,0.35)]"
+    class="fixed bottom-0 left-0 top-[79px] z-[90] flex w-[min(520px,92vw)] flex-col overflow-y-auto border-r border-border bg-base font-sans text-fg shadow-[8px_0_24px_rgba(0,0,0,0.35)]"
     role="dialog"
     aria-label="Start a terminal"
   >

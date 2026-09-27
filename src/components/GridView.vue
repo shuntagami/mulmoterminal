@@ -623,7 +623,7 @@ const launchPanelOpen = ref(false);
 const launchPanelDir = computed(() => (launchPanelOrigin.value === null ? defaultCwd.value : adjacentCwd(launchPanelOrigin.value)));
 const closeLaunchPanel = () => (launchPanelOpen.value = false);
 // Re-pressing the same control closes it, so `+` and the shortcut are both a toggle — the panel
-// covers the right edge of the stage, and a control that can only open it leaves the user hunting
+// covers the left edge of the stage, and a control that can only open it leaves the user hunting
 // for the way back. Opening it on a DIFFERENT cell re-targets rather than closing.
 function toggleLaunchPanel(origin: number | null) {
   if (launchPanelOpen.value && launchPanelOrigin.value === origin) {
