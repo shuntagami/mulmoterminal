@@ -1438,6 +1438,8 @@ function onRosterDrop(event: DragEvent) {
 // oscillate.
 const tileDragUid = ref<number | null>(null);
 let tileSlot: string | null = null;
+// What a tile drag carries, and so how one is told from every other drag over the grid.
+const TILE_DRAG_TYPE = "application/x-mulmoterminal-tile";
 
 function onTileDragStart(event: DragEvent, uid: number) {
   if (zoomed.value) return; // the enlarged views reorder from the roster
@@ -1450,7 +1452,7 @@ function onTileDragStart(event: DragEvent, uid: number) {
   // Firefox starts no drag at all unless the transfer carries something. Not `text/plain`, unlike the
   // roster's: a tile is dragged OVER terminals, and plain text released on one is text an editable
   // under the pointer would take as typing.
-  dt.setData("application/x-mulmoterminal-tile", String(uid));
+  dt.setData(TILE_DRAG_TYPE, String(uid));
   // The whole tile as the ghost, not the 16px handle: it says what is being moved.
   const tile = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-uid]") : null;
   if (tile) dt.setDragImage(tile, 16, 16);
@@ -1459,6 +1461,13 @@ function onTileDragStart(event: DragEvent, uid: number) {
 function onTileDragOver(event: DragEvent) {
   const uid = tileDragUid.value;
   if (uid === null) return; // someone else's drag (a file dropped on a terminal) — leave it alone
+  // A drag that carries no tile is someone else's too, whatever the state says: a tile drag whose
+  // `dragend` never arrived (its handle left the page mid-drag) would otherwise have the next file
+  // dragged over the grid reorder it. Meeting one is proof the tile drag is over.
+  if (!event.dataTransfer?.types.includes(TILE_DRAG_TYPE)) {
+    endTileDrag();
+    return;
+  }
   event.preventDefault(); // required for `drop` to fire at all
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   const tile = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-uid]") : null;

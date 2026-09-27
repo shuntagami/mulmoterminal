@@ -96,8 +96,12 @@ const mountGrid = (cells: Cell[], expandedUid: number | null = null) =>
       listMode: true,
     },
   });
-// A drag, by hand: jsdom has no DragEvent, so the event is a plain one with the fields stated.
-const dragTransfer = () => ({ effectAllowed: "", dropEffect: "", setData: vi.fn(), setDragImage: vi.fn() });
+// A drag, by hand: jsdom has no DragEvent, so the event is a plain one with the fields stated. What
+// is set on the transfer shows up in its `types`, as it does for the rest of a browser's drag.
+const dragTransfer = () => {
+  const types: string[] = [];
+  return { effectAllowed: "", dropEffect: "", types, setData: vi.fn((type: string) => void types.push(type)), setDragImage: vi.fn() };
+};
 const fireEvent = (el: Element, type: string, props: Record<string, unknown> = {}) => {
   const event = new Event(type, { bubbles: true, cancelable: true });
   for (const [key, value] of Object.entries(props)) Object.defineProperty(event, key, { value, configurable: true });
@@ -179,14 +183,14 @@ describe("TerminalGrid tiled drag-and-drop reorder", () => {
 
   it("names the tile it is over and which half, once per slot", async () => {
     const w = mountGrid(three());
-    pickUp(w, 0);
+    const dt = pickUp(w, 0);
     const tile = placed(cellsOf(w)[2].element);
-    const over = fire(tile, "dragover", { clientX: 280, dataTransfer: transfer() });
+    const over = fire(tile, "dragover", { clientX: 280, dataTransfer: dt });
     expect(over.defaultPrevented).toBe(true);
     expect(w.emitted("move-beside")).toEqual([[0, 2, true]]);
-    fire(tile, "dragover", { clientX: 290, dataTransfer: transfer() }); // same slot: nothing new
+    fire(tile, "dragover", { clientX: 290, dataTransfer: dt }); // same slot: nothing new
     expect(w.emitted("move-beside")).toHaveLength(1);
-    fire(tile, "dragover", { clientX: 210, dataTransfer: transfer() }); // left half: before it
+    fire(tile, "dragover", { clientX: 210, dataTransfer: dt }); // left half: before it
     expect(w.emitted("move-beside")?.[1]).toEqual([0, 2, false]);
     w.unmount();
   });
@@ -194,10 +198,10 @@ describe("TerminalGrid tiled drag-and-drop reorder", () => {
   // The move already happened; the drop must not fall through to the browser's own, over a terminal.
   it("swallows the drop and ends the drag", async () => {
     const w = mountGrid(three());
-    pickUp(w, 0);
+    const dt = pickUp(w, 0);
     const tile = placed(cellsOf(w)[1].element);
-    expect(fire(tile, "drop", { dataTransfer: transfer() }).defaultPrevented).toBe(true);
-    expect(fire(tile, "dragover", { clientX: 280, dataTransfer: transfer() }).defaultPrevented).toBe(false);
+    expect(fire(tile, "drop", { dataTransfer: dt }).defaultPrevented).toBe(true);
+    expect(fire(tile, "dragover", { clientX: 280, dataTransfer: dt }).defaultPrevented).toBe(false);
     w.unmount();
   });
 
@@ -207,6 +211,23 @@ describe("TerminalGrid tiled drag-and-drop reorder", () => {
     const over = fire(placed(cellsOf(w)[1].element), "dragover", { clientX: 280, dataTransfer: transfer() });
     expect(over.defaultPrevented).toBe(false);
     expect(w.emitted("move-beside")).toBeUndefined();
+    w.unmount();
+  });
+
+  // A tile drag whose `dragend` never came (its handle left the page mid-drag) must not turn the next
+  // file dragged over the grid into a reorder — and meeting that file ends the stale drag.
+  it("takes a drag carrying no tile for someone else's, even with a tile drag left open", async () => {
+    const w = mountGrid(three());
+    pickUp(w, 0); // no dragend follows
+    await w.vm.$nextTick();
+    expect(cellsOf(w)[0].classes()).toContain("opacity-50");
+    const file = transfer();
+    file.types.push("Files");
+    const over = fire(placed(cellsOf(w)[2].element), "dragover", { clientX: 280, dataTransfer: file });
+    expect(over.defaultPrevented).toBe(false);
+    expect(w.emitted("move-beside")).toBeUndefined();
+    await w.vm.$nextTick();
+    expect(cellsOf(w)[0].classes()).not.toContain("opacity-50");
     w.unmount();
   });
 
