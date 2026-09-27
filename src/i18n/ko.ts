@@ -565,7 +565,7 @@ export const ko: Messages = {
 
   // 2타 단축키가 두 번째 키를 기다리는 동안 보이는 안내 (#2265).
   commandPalette: {
-    open: "동작",
+    open: "명령",
     placeholder: "이름으로 동작 실행",
     close: "명령 팔레트 닫기",
     empty: "일치하는 동작이 없습니다.",

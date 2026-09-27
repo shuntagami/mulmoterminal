@@ -552,7 +552,7 @@ export const zhCN: Messages = {
 
   // 双键快捷键等待第二个键时显示的提示（#2265）。
   commandPalette: {
-    open: "操作",
+    open: "命令",
     placeholder: "按名称运行操作",
     close: "关闭命令面板",
     empty: "没有匹配的操作。",

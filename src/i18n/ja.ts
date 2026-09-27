@@ -568,10 +568,10 @@ export const ja: Messages = {
 
   // 2打のショートカットが2打目を待っている間に出す案内（#2265）。
   commandPalette: {
-    open: "操作",
-    placeholder: "操作の名前で実行",
+    open: "コマンド",
+    placeholder: "動作の名前で実行",
     close: "コマンドパレットを閉じる",
-    empty: "一致する操作はありません。",
+    empty: "一致する動作はありません。",
     needsEnlarged: "ターミナルの拡大中だけ",
     needsNothingEnlarged: "拡大していないときだけ",
     gridHidden: "ターミナルのグリッドが前面にあるときだけ",

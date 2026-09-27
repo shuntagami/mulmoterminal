@@ -584,7 +584,7 @@ export const en = {
 
   // The hint shown while a two-key shortcut waits for its second key (#2265).
   commandPalette: {
-    open: "Actions",
+    open: "Commands",
     placeholder: "Run an action by name",
     close: "Close the command palette",
     empty: "No action matches that.",

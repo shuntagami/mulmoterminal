@@ -557,7 +557,7 @@ export const zhTW: Messages = {
 
   // 雙鍵快捷鍵等待第二個鍵時顯示的提示（#2265）。
   commandPalette: {
-    open: "動作",
+    open: "命令",
     placeholder: "依名稱執行動作",
     close: "關閉命令面板",
     empty: "沒有符合的動作。",
