@@ -3,14 +3,13 @@ import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick
 import TerminalCell from "./TerminalCell.vue";
 import CommandCell from "./CommandCell.vue";
 import LauncherCell from "./LauncherCell.vue";
-import CockpitRowMenu from "./CockpitRowMenu.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import * as conn from "../composables/useTerminalConnections";
 import { trackStyle, layoutForCount } from "./gridLayout";
 import { cockpitLines } from "../composables/cockpitLines";
 import { dragSplitter } from "../composables/dragSplitter";
 import { flipKeyframes, flipPairs, onScreen, FLIP_MS, FLIP_EASING } from "./cellFlip";
-import { canDropCellBefore, canMoveCell, reorderBefore, type Cell } from "./gridTabs";
+import { canDropCellBefore, reorderBefore, type Cell } from "./gridTabs";
 import { dropBeforeUid, dropSlot, pointerInside, type RowBox } from "./rosterDrag";
 import type { AttentionStatus } from "./attentionStatus";
 import { cellPlacement, teleportKey, type CellPlacement } from "./cellTeleport";
@@ -25,13 +24,13 @@ import type { AgentAccount } from "../../common/agentAccounts";
 import { shouldFlipZoom } from "./cellChromeRules";
 import { rosterAlertClass } from "./rosterAlertClasses";
 import { attentionAction, type MenuPoint } from "./rowMenu";
+import CockpitRowMenu from "./CockpitRowMenu.vue";
 import { useRosterAlert } from "../composables/useRosterAlert";
 import { formatCwd } from "./cwdDisplay";
 import FilesPane from "./FilesPane.vue";
 import type { FilesPaneState } from "./filesPaneState";
 import GuiPanel from "./GuiPanel.vue";
 import CollectionsPane from "./CollectionsPane.vue";
-import GithubPane from "./GithubPane.vue";
 import ToolsPane from "./ToolsPane.vue";
 import PromptsPane from "./PromptsPane.vue";
 import TranscriptPane from "./TranscriptPane.vue";
@@ -118,8 +117,6 @@ const props = defineProps<{
   customAgents?: CustomAgent[];
   accounts?: AgentAccount[];
   home: string | null;
-  // Manual sort mode: each cell shows move buttons to reorder.
-  reorderable?: boolean;
   openSessionIds: string[];
   openCwds: string[];
   // While a cell is zoomed: cockpit roster (true) vs thumbnail strip (false). Owned by GridView
@@ -128,20 +125,25 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "session" | "cwd", uid: number, value: string): void;
-  (e: "close" | "toggle-expand" | "focus-cell" | "new-here", uid: number): void;
+  (e: "close" | "toggle-expand" | "focus-cell", uid: number): void;
   (e: "run" | "runSpare", uid: number, command: RunCommand): void;
   (e: "launch", uid: number, pick: LaunchPick): void;
-  (e: "move", uid: number, dir: -1 | 1): void;
-  // Manual reorder to an arbitrary slot (the roster's drag handle): put `uid` in front of
-  // `beforeUid`, or at the end of the list when that is null.
+  // Reorder to an arbitrary slot (the roster's drag handle): put `uid` in front of `beforeUid`, or at
+  // the end of the list when that is null.
   (e: "move-before", uid: number, beforeUid: number | null): void;
+  // The tiled grid's drag: put `uid` right before or right after `target`. Beside a TILE rather than
+  // before a uid, because a tile at the end of a page has its successor on the next page, which this
+  // component never sees — the parent, which owns the whole order, resolves it.
+  (e: "move-beside", uid: number, target: number, after: boolean): void;
   (e: "status", uid: number, value: AttentionStatus): void;
   (e: "agent", uid: number, value: AgentReport): void;
   (e: "park", uid: number, value: boolean): void;
   // Shared preset list events — uid-less since they mutate the one config list.
   (e: "record-cwd" | "remove-preset", value: string): void;
-  // Read the config again, after it could not be read at all — uid-less for the same reason.
-  (e: "retry-config"): void;
+  // `retry-config`: read the config again, after it could not be read at all — uid-less for the
+  // same reason. `manual-order`: a drag has started, so whatever the order mode the order is about
+  // to be the user's, starting from what is on screen; the parent adopts it and switches to manual.
+  (e: "retry-config" | "manual-order"): void;
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
@@ -179,6 +181,8 @@ function cellClass(uid: number) {
   return {
     flipping: flippingUids.value.has(uid),
     focused: uid === focusedUid.value && props.expandedUid === null && !flippingUids.value.has(uid),
+    // The tile being dragged, dimmed so the one moving is told apart from the ones making room.
+    "opacity-50": uid === tileDragUid.value,
   };
 }
 // Hand the flip's timing to the stylesheet so the fade under it can't drift out of sync.
@@ -370,15 +374,6 @@ function setRightPane(pane: RightPane | null, uid: number | null): void {
   if (leavingFiles) paneCwd.value = null;
 }
 
-// A cell's header toggle, for the cell it was pressed on — which is not always the enlarged one:
-// pressed on a tiled cell it says what that terminal should have open when it IS enlarged (#1378).
-// Closing unmounts the pane, buffer and all, so the buffer is saved on the way out — the pane's
-// OWN close button has already flushed by the time it emits, which is why that path stays separate
-// rather than routing through here.
-async function toggleFiles(uid: number | null): Promise<void> {
-  await toggleRightPane("files", uid);
-}
-
 // The unread-canvas chip on a tiled cell: enlarge that cell AND put the pane beside it, in one
 // click. Two steps because the pane only exists while a cell is enlarged — asking the user to
 // expand first and then find the button is the gesture this chip exists to remove.
@@ -440,23 +435,6 @@ async function adoptStoredCard(): Promise<void> {
   // The zoom can walk while the ask is in flight; `canvasHasCard` is one flag for whichever cell
   // is enlarged, so a late answer must not speak for the cell that replaced it.
   if (sessionId === expandedSessionId.value) canvasHasCard.value = has;
-}
-
-// The same gesture for the files pane: the path menu's "Browse files in the app", which is on
-// every cell whether it is enlarged or not (#1910). It used to open the full-screen view — the
-// pane is what the user is after, and it exists only beside an enlarged cell, so this enlarges.
-//
-// Not a toggle. "Browse files" is "show me", the way `openCanvasFor` is; the header's folder
-// button is the one that closes what it opened.
-//
-// The flush condition is narrower than openCanvasFor's, because less is unmounted: the Canvas
-// always replaces a files pane, while this one moves it only when it is on ANOTHER cell. And
-// `filesOpen` already means "the pane on screen is files" — it reads `paneUid` — so
-// `paneUid !== uid` is exactly "a files pane that is about to be re-rooted".
-async function openFilesFor(uid: number): Promise<void> {
-  if (filesOpen.value && paneUid.value !== uid && (await filesPane.value?.flush()) === false) return;
-  if (props.expandedUid !== uid) emit("toggle-expand", uid);
-  setRightPane("files", uid);
 }
 
 /** What a refusal has to come back to for it to be worth showing. */
@@ -556,6 +534,44 @@ async function toggleRightPane(pane: RightPane, uid: number | null = props.expan
   if (filesOpen.value && paneUid.value === uid && (await filesPane.value?.flush()) === false) return;
   setRightPane(paneOf(uid) === pane ? null : pane, uid);
 }
+
+// The one Panel button and the tabs inside the pane replace a toggle per pane — seven icons on the
+// cell header for one slot that only ever holds one pane. The button reopens whichever pane was
+// used last; the tabs pick among them.
+const lastPane = ref<RightPane>("files");
+watch(rightPane, (pane) => {
+  // The question pane opens itself for a live AskUserQuestion; it is not something to go back to.
+  if (pane && pane !== "question") lastPane.value = pane;
+});
+
+async function togglePanel(uid: number): Promise<void> {
+  await toggleRightPane(paneOf(uid) ?? lastPane.value, uid);
+}
+
+// A tab: shows that pane, and never closes it the way a second press on a toggle did — the pane's
+// own close button does that.
+async function selectPane(pane: RightPane): Promise<void> {
+  const uid = paneUid.value ?? props.expandedUid;
+  if (uid === null || paneOf(uid) === pane) return;
+  await toggleRightPane(pane, uid);
+}
+
+// Collections only where the directory has the collection tools — a pane the agent cannot act on
+// is not worth a tab — unless it is the one showing, which must stay named.
+const PANE_TABS: readonly { pane: RightPane; label: string }[] = [
+  { pane: "files", label: "Files" },
+  { pane: "canvas", label: "Canvas" },
+  { pane: "tools", label: "Tools" },
+  { pane: "prompts", label: "Prompts" },
+  { pane: "transcript", label: "Chat" },
+  { pane: "collections", label: "Collections" },
+];
+// The question pane is not a place to go — it opens itself for a live AskUserQuestion — but while it
+// IS the pane on screen it gets a tab too, so the strip always names what is showing.
+const paneTabs = computed(() => {
+  const tabs = PANE_TABS.filter((tab) => tab.pane !== "collections" || collectionsAvailable.value || rightPane.value === "collections");
+  return rightPane.value === "question" ? [...tabs, { pane: "question" as const, label: "Question" }] : tabs;
+});
 
 // The enlarged cell's project dir — what the pane browses. A cell that hasn't reported one yet
 // (a launcher, a session still starting) falls back to the grid's default.
@@ -865,15 +881,9 @@ const gridCellProps = (cell: Cell) => ({
   "data-uid": cell.uid,
   class: cellClass(cell.uid),
   expanded: cell.uid === props.expandedUid,
-  // THIS cell's pane, not the one on screen: the header buttons say what this terminal has open,
+  // THIS cell's pane, not the one on screen: the Panel button says what this terminal has open,
   // and after #1378 two cells can disagree.
-  filesOpen: paneOf(cell.uid) === "files",
   rightPane: paneOf(cell.uid),
-  canvasAvailable: canvasOpenable.value,
-  // The raw answer. The "an open pane must keep its only close" clause is CellChromeButtons'
-  // own, where the button is rendered and where `rightPane` names that cell's pane rather than
-  // the one the grid happens to be showing.
-  collectionsAvailable: collectionsAvailable.value,
   // Nothing to enlarge INTO while the collection pane is holding this cell: the pane wins over the
   // zoom (cellTeleport.ts), so the button would set a state nobody sees until they leave (#2001).
   hideExpand: placementOf(cell) === "collection",
@@ -883,24 +893,16 @@ const gridCellProps = (cell: Cell) => ({
   // against it to know whether IT is the workspace, and a cell type left out of that comparison is
   // one that badges the workspace with the folder's name while its neighbour says WORKSPACE.
   defaultCwd: props.defaultCwd,
-  reorderable: props.reorderable ?? false,
 });
 const gridCellEvents = (cell: Cell) => ({
   "toggle-expand": () => emit("toggle-expand", cell.uid),
-  "new-here": () => emit("new-here", cell.uid),
-  // Each carries the cell it was pressed on: a header button answers for ITS terminal, tiled or
+  // Carries the cell it was pressed on: a header button answers for ITS terminal, tiled or
   // enlarged, and after #1378 two cells can want different panes.
-  "toggle-files": () => toggleFiles(cell.uid),
-  "toggle-canvas": () => toggleRightPane("canvas", cell.uid),
+  "toggle-panel": () => togglePanel(cell.uid),
   "open-canvas": () => openCanvasFor(cell.uid),
-  "open-files": () => openFilesFor(cell.uid),
-  "toggle-tools": () => toggleRightPane("tools", cell.uid),
-  "toggle-prompts": () => toggleRightPane("prompts", cell.uid),
-  "toggle-transcript": () => toggleRightPane("transcript", cell.uid),
-  "toggle-collections": () => toggleRightPane("collections", cell.uid),
-  "toggle-github": () => toggleRightPane("github", cell.uid),
+  "drag-handle": (event: DragEvent) => onTileDragStart(event, cell.uid),
+  "drag-end": () => endTileDrag(),
   close: () => emit("close", cell.uid),
-  move: (dir: -1 | 1) => emit("move", cell.uid, dir),
   status: (value: AttentionStatus) => emit("status", cell.uid, value),
 });
 
@@ -1291,8 +1293,10 @@ watch(
   },
 );
 
-// Dragging a roster row to an arbitrary slot (#2126). The ⋮ menu's up/down stays — it is the
-// keyboard route, and a drag cannot be one.
+// Dragging a roster row to an arbitrary slot (#2126). It is the one way to reorder by pointer, in
+// every order mode: starting a drag makes the order manual (`manual-order`). The keyboard route is
+// the command palette's "Move this terminal earlier / later" — the ⋮ up/down menu that used to sit
+// beside the handle was a second pointer route to the same thing.
 //
 // The DRAG SOURCE is the handle inside the row, not the row: the row body's click is what swaps
 // which terminal is enlarged, so making it draggable would put a reorder and a navigation on the
@@ -1343,9 +1347,9 @@ const endRosterDrag = () => {
 };
 
 function onRowDragStart(event: DragEvent, uid: number) {
-  if (!props.reorderable) return;
   endRosterDrag(); // a drag that somehow never ended must not leave its target for this one to commit
   dragUid.value = uid;
+  emit("manual-order");
   window.addEventListener("keydown", onRosterDragKey);
   const dt = event.dataTransfer;
   if (!dt) return;
@@ -1425,6 +1429,70 @@ function onRosterDrop(event: DragEvent) {
   if (dragUid.value === null) return;
   event.preventDefault();
   commitRosterDrag();
+}
+
+// Dragging a TILE in the tiled grid — the same gesture as the roster's, on the handle at the head of
+// each cell's header. The move is committed as the pointer goes rather than previewed: a tile is a
+// live terminal, and moving the real one is the preview. Each new slot is emitted once — the tile
+// that lands under a still pointer is the dragged one itself, which is ignored, so it cannot
+// oscillate.
+const tileDragUid = ref<number | null>(null);
+let tileSlot: string | null = null;
+// What a tile drag carries, and so how one is told from every other drag over the grid.
+const TILE_DRAG_TYPE = "application/x-mulmoterminal-tile";
+
+function onTileDragStart(event: DragEvent, uid: number) {
+  if (zoomed.value) return; // the enlarged views reorder from the roster
+  tileDragUid.value = uid;
+  tileSlot = null;
+  emit("manual-order");
+  const dt = event.dataTransfer;
+  if (!dt) return;
+  dt.effectAllowed = "move";
+  // Firefox starts no drag at all unless the transfer carries something. Not `text/plain`, unlike the
+  // roster's: a tile is dragged OVER terminals, and plain text released on one is text an editable
+  // under the pointer would take as typing.
+  dt.setData(TILE_DRAG_TYPE, String(uid));
+  // The whole tile as the ghost, not the 16px handle: it says what is being moved.
+  const tile = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-uid]") : null;
+  if (tile) dt.setDragImage(tile, 16, 16);
+}
+
+function onTileDragOver(event: DragEvent) {
+  const uid = tileDragUid.value;
+  if (uid === null) return; // someone else's drag (a file dropped on a terminal) — leave it alone
+  // A drag that carries no tile is someone else's too, whatever the state says: a tile drag whose
+  // `dragend` never arrived (its handle left the page mid-drag) would otherwise have the next file
+  // dragged over the grid reorder it. Meeting one is proof the tile drag is over.
+  if (!event.dataTransfer?.types.includes(TILE_DRAG_TYPE)) {
+    endTileDrag();
+    return;
+  }
+  event.preventDefault(); // required for `drop` to fire at all
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  const tile = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-uid]") : null;
+  const target = Number(tile?.dataset.uid);
+  if (!tile || !Number.isInteger(target) || target === uid) return;
+  // The grid fills row by row, so which half of the tile the pointer is in says before or after.
+  const rect = tile.getBoundingClientRect();
+  const after = event.clientX > rect.left + rect.width / 2;
+  const slot = `${target}:${after}`;
+  if (slot === tileSlot) return;
+  tileSlot = slot;
+  emit("move-beside", uid, target, after);
+}
+
+function endTileDrag() {
+  tileDragUid.value = null;
+  tileSlot = null;
+}
+
+// The drop itself changes nothing — the move already happened as the pointer went — but it must not
+// fall through to the browser's own drop, over a terminal of all places.
+function onTileDrop(event: DragEvent) {
+  if (tileDragUid.value === null) return;
+  event.preventDefault();
+  endTileDrag();
 }
 
 // Escape cancels a drag, and `dragend` reports it exactly as it reports a drop the browser
@@ -1520,11 +1588,10 @@ function onRosterDragLeave(event: DragEvent) {
             :phase="row.phase"
           >
             <!-- The drag handle. A span rather than a button, and aria-hidden: a drag is not a
-               keyboard gesture, and the ⋮ beside it is the accessible route to the same reorder.
-               `@click.stop` keeps a press that never became a drag from swapping the enlarged
-               terminal, which is the row's own click. -->
+               keyboard gesture, and the command palette's "Move this terminal earlier / later" is
+               the accessible route to the same reorder. `@click.stop` keeps a press that never
+               became a drag from swapping the enlarged terminal, which is the row's own click. -->
             <span
-              v-if="reorderable"
               data-testid="cockpit-drag"
               class="material-symbols-outlined flex-none cursor-grab text-[16px] leading-none text-dim hover:text-fg active:cursor-grabbing"
               draggable="true"
@@ -1536,14 +1603,10 @@ function onRosterDragLeave(event: DragEvent) {
               >drag_indicator</span
             >
             <CockpitRowMenu
-              :can-up="canMoveCell(cells, row.uid, -1)"
-              :can-down="canMoveCell(cells, row.uid, 1)"
-              :reorderable="reorderable ?? false"
               :attention="attentionAction(row.status, row.markable && slotConnected(row.uid))"
               :parkable="row.parkable"
               :parked="row.parked"
               :at="rowMenuAt?.uid === row.uid ? rowMenuAt.point : null"
-              @move="(dir) => emit('move', row.uid, dir)"
               @attention="(waiting) => markAttention(row.uid, waiting)"
               @park="(on) => emit('park', row.uid, on)"
               @close="emit('close', row.uid)"
@@ -1633,122 +1696,131 @@ function onRosterDragLeave(event: DragEvent) {
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"
         />
-        <FilesPane
-          v-if="rightPane === 'files'"
-          ref="filesPane"
-          :cwd="paneCwd"
-          :initial-state="paneState"
-          :canvas-target="expandedUid !== null"
-          :insert-target="expandedTakesInput"
-          :insert-target-cwd="expandedCwd"
-          :stories-roots="storiesRoots"
-          :style="{ flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border bg-deep"
-          @close="setFilesOpen(false)"
-          @open-in-canvas="openFileInCanvas"
-          @insert-text="insertIntoExpandedCell"
+        <!-- The side pane: one column, the tabs over whichever pane is showing. The column holds the
+             width and the border, so every pane under it just fills. -->
+        <div
+          data-testid="side-pane"
+          class="flex min-w-0 flex-col border-l border-border"
+          :style="paneFull ? { flex: '1 1 0%' } : { flex: `0 0 ${paneWidth}px` }"
         >
-          <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
+          <div
+            role="tablist"
+            aria-label="Side panel"
+            data-testid="side-pane-tabs"
+            class="flex h-[30px] flex-none items-stretch gap-0.5 overflow-x-auto border-b border-border bg-panel px-1.5"
+          >
+            <button
+              v-for="tab in paneTabs"
+              :key="tab.pane"
+              type="button"
+              role="tab"
+              :data-testid="`side-pane-tab-${tab.pane}`"
+              class="flex-none cursor-pointer whitespace-nowrap border-0 border-b-2 bg-transparent px-2 font-sans text-[12px]"
+              :class="rightPane === tab.pane ? 'border-b-accent font-semibold text-fg' : 'border-b-transparent text-muted hover:text-fg'"
+              :aria-selected="rightPane === tab.pane"
+              @click="selectPane(tab.pane)"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+          <FilesPane
+            v-if="rightPane === 'files'"
+            ref="filesPane"
+            :cwd="paneCwd"
+            :initial-state="paneState"
+            :canvas-target="expandedUid !== null"
+            :insert-target="expandedTakesInput"
+            :insert-target-cwd="expandedCwd"
+            :stories-roots="storiesRoots"
+            class="min-h-0 flex-1 bg-deep"
+            @close="setFilesOpen(false)"
+            @open-in-canvas="openFileInCanvas"
+            @insert-text="insertIntoExpandedCell"
+          >
+            <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
                cell, but declining a re-root leaves it behind — and then this is the only thing
                that says so. -->
-          <template #title>
-            <span class="truncate font-mono text-[11px] text-muted" :title="paneCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
-          </template>
-        </FilesPane>
-        <!-- Canvas and Tools follow the enlarged cell's SESSION, not its directory, and neither
+            <template #title>
+              <span class="truncate font-mono text-[11px] text-muted" :title="paneCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
+            </template>
+          </FilesPane>
+          <!-- Canvas and Tools follow the enlarged cell's SESSION, not its directory, and neither
              holds an unsaved buffer — so unlike the files pane they re-root unconditionally and
              need none of its decline-a-re-root machinery. -->
-        <GuiPanel
-          v-else-if="rightPane === 'canvas'"
-          :session-id="expandedSessionId"
-          :cwd="expandedCwd"
-          :send-text-message="sendToExpandedCell"
-          :unavailable="canvasUnavailable"
-          :expanded="paneFull"
-          :style="{ flex: paneFull ? '1 1 0%' : `0 0 ${paneWidth}px` }"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
-        <!-- `width: auto` only while full: the pane sets its own w-[340px], and a fixed width
-             beside `flex: 1` is the one combination where the class outlives the layout. -->
-        <ToolsPane
-          v-else-if="rightPane === 'tools'"
-          :session-id="expandedSessionId"
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
-        <!-- What this session was ASKED for, against the tools pane's what it then ran. Follows
+          <GuiPanel
+            v-else-if="rightPane === 'canvas'"
+            :session-id="expandedSessionId"
+            :cwd="expandedCwd"
+            :send-text-message="sendToExpandedCell"
+            :unavailable="canvasUnavailable"
+            :expanded="paneFull"
+            class="min-h-0 flex-1"
+            @toggle-expand="togglePaneExpanded"
+            @close="setRightPane(null, paneUid)"
+          />
+          <!-- `!w-auto`: the pane sets its own w-[340px], and the side-pane column around it is what
+             holds the width now — split or full — so the pane's own has to give way. -->
+          <ToolsPane
+            v-else-if="rightPane === 'tools'"
+            :session-id="expandedSessionId"
+            :expanded="paneFull"
+            class="min-h-0 flex-1 !w-auto"
+            @toggle-expand="togglePaneExpanded"
+            @close="setRightPane(null, paneUid)"
+          />
+          <!-- What this session was ASKED for, against the tools pane's what it then ran. Follows
              the enlarged cell's session like those two, and needs its AGENT as well: the prompts
              live in claude's own history file or in codex's rollout, and only the cell knows
              which (#1748). -->
-        <PromptsPane
-          v-else-if="rightPane === 'prompts'"
-          :session-id="expandedSessionId"
-          :cwd="expandedCwd"
-          :agent="expandedAgent"
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
-        <!-- The conversation itself — what the prompts and tools panes each show one half of.
+          <PromptsPane
+            v-else-if="rightPane === 'prompts'"
+            :session-id="expandedSessionId"
+            :cwd="expandedCwd"
+            :agent="expandedAgent"
+            :expanded="paneFull"
+            class="min-h-0 flex-1 !w-auto"
+            @toggle-expand="togglePaneExpanded"
+            @close="setRightPane(null, paneUid)"
+          />
+          <!-- The conversation itself — what the prompts and tools panes each show one half of.
              Follows the enlarged cell's session like they do, and needs no AGENT: the reader asks
              each agent's log whether it HAS a file for this session rather than being told which to
              open, because a restarted claude cell reports its agent as `shell`
              (server/session/transcript-view-read.ts). -->
-        <TranscriptPane
-          v-else-if="rightPane === 'transcript'"
-          :session-id="expandedSessionId"
-          :cwd="expandedCwd"
-          :agent="expandedAgent"
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
-        <!-- Scoped by the CELL's directory, not by a picker: a Project is a directory, and the
+          <TranscriptPane
+            v-else-if="rightPane === 'transcript'"
+            :session-id="expandedSessionId"
+            :cwd="expandedCwd"
+            :agent="expandedAgent"
+            :expanded="paneFull"
+            class="min-h-0 flex-1 !w-auto"
+            @toggle-expand="togglePaneExpanded"
+            @close="setRightPane(null, paneUid)"
+          />
+          <!-- Scoped by the CELL's directory, not by a picker: a Project is a directory, and the
              cell already names one. -->
-        <CollectionsPane
-          v-else-if="rightPane === 'collections'"
-          :cwd="expandedCwd"
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
-        <!-- Every configured repo, whatever the cell is: what the cell's directory decides is
-             which repo's section LEADS (common/githubPaneOrder.ts). A directory that names no
-             repository is an ordinary case and gets the configured order — a plain shell cell can
-             still read the list. -->
-        <!-- The buttons of a live AskUserQuestion dialog (#1679). Opens itself when the question
+          <CollectionsPane
+            v-else-if="rightPane === 'collections'"
+            :cwd="expandedCwd"
+            :expanded="paneFull"
+            class="min-h-0 flex-1 !w-auto"
+            @toggle-expand="togglePaneExpanded"
+            @close="setRightPane(null, paneUid)"
+          />
+          <!-- The buttons of a live AskUserQuestion dialog (#1679). Opens itself when the question
              arrives; the terminal underneath keeps showing the real dialog either way. -->
-        <QuestionPane
-          v-else-if="rightPane === 'question'"
-          :event="expandedQuestion"
-          :failure="answerFailure"
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          @answer="answerQuestion"
-          @say="sayInsteadOfChoosing"
-          @toggle-expand="togglePaneExpanded"
-          @close="dismissQuestionPane"
-        />
-        <GithubPane
-          v-else-if="rightPane === 'github'"
-          :cwd="expandedCwd"
-          can-expand
-          :expanded="paneFull"
-          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
-          class="border-l border-border"
-          @toggle-expand="togglePaneExpanded"
-          @close="setRightPane(null, paneUid)"
-        />
+          <QuestionPane
+            v-else-if="rightPane === 'question'"
+            :event="expandedQuestion"
+            :failure="answerFailure"
+            :expanded="paneFull"
+            class="min-h-0 flex-1 !w-auto"
+            @answer="answerQuestion"
+            @say="sayInsteadOfChoosing"
+            @toggle-expand="togglePaneExpanded"
+            @close="dismissQuestionPane"
+          />
+        </div>
       </template>
     </div>
     <!-- Enlarged cell / thumbnail strip. The stage is a COLUMN in strip mode, so this separator
@@ -1771,7 +1843,7 @@ function onRosterDragLeave(event: DragEvent) {
     <!-- In strip mode the grid IS the thumbnail strip, and its height is the user's (#1077). The
          stylesheet's `flex: 0 0 150px` stays as the default; an inline basis outranks it, and is
          bound only in that mode so it cannot reach the tiled grid or list mode's off-screen one. -->
-    <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]">
+    <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]" @dragover="onTileDragOver" @drop="onTileDrop">
       <!-- Two places a cell can be shown somewhere else, and the collection pane wins while it is
            open — it is an overlay ON TOP of the grid, so the zoom underneath is not on screen
            (#2001). Same mechanism either way: the cell is MOVED, never re-created, so its socket,

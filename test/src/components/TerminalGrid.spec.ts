@@ -36,8 +36,8 @@ vi.mock("../../../src/components/FilesPane.vue", () => ({
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "reorderable", "canvasAvailable"],
-    emits: ["toggle-expand", "toggle-files", "toggle-prompts", "session", "cwd", "run", "close", "move", "status", "canvas"],
+    props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "rightPane"],
+    emits: ["toggle-expand", "toggle-panel", "session", "cwd", "run", "close", "status", "canvas", "drag-handle", "drag-end"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -60,23 +60,28 @@ vi.mock("../../../src/components/PromptsPane.vue", () => ({
 vi.mock("../../../src/components/CommandCell.vue", () => ({
   default: {
     name: "CommandCell",
-    props: ["expanded", "command", "home", "reorderable"],
-    emits: ["toggle-expand", "close", "move", "status"],
+    props: ["expanded", "command", "home"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status"],
     template: '<div class="stub-command-cell" />',
   },
 }));
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
   default: {
     name: "LauncherCell",
-    props: ["uid", "expanded", "launcher", "session", "cwd", "home", "reorderable"],
-    emits: ["toggle-expand", "close", "move", "status", "session"],
+    props: ["uid", "expanded", "launcher", "session", "cwd", "home"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
     template: '<div class="stub-launcher-cell" />',
   },
+}));
+// Only the tab strip is under test where these appear; the panes' own behaviour has its own specs,
+// and the real CollectionsPane reaches for the collection plugin on mount.
+vi.mock("../../../src/components/CollectionsPane.vue", () => ({
+  default: { name: "CollectionsPane", props: ["cwd", "expanded"], emits: ["toggle-expand", "close"], template: '<div class="stub-collections-pane" />' },
 }));
 
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
 const cmdCell = (uid: number, command: NonNullable<Cell["command"]>): Cell => ({ uid, session: null, cwd: null, command });
-const mountGrid = (cells: Cell[], expandedUid: number | null = null, reorderable = false) =>
+const mountGrid = (cells: Cell[], expandedUid: number | null = null) =>
   mount(TerminalGrid, {
     props: {
       cells,
@@ -88,10 +93,21 @@ const mountGrid = (cells: Cell[], expandedUid: number | null = null, reorderable
       home: "/work",
       openSessionIds: [],
       openCwds: [],
-      reorderable,
       listMode: true,
     },
   });
+// A drag, by hand: jsdom has no DragEvent, so the event is a plain one with the fields stated. What
+// is set on the transfer shows up in its `types`, as it does for the rest of a browser's drag.
+const dragTransfer = () => {
+  const types: string[] = [];
+  return { effectAllowed: "", dropEffect: "", types, setData: vi.fn((type: string) => void types.push(type)), setDragImage: vi.fn() };
+};
+const fireEvent = (el: Element, type: string, props: Record<string, unknown> = {}) => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  for (const [key, value] of Object.entries(props)) Object.defineProperty(event, key, { value, configurable: true });
+  el.dispatchEvent(event);
+  return event;
+};
 const cellsOf = (w: ReturnType<typeof mount>) => w.findAllComponents({ name: "TerminalCell" });
 const commandCellsOf = (w: ReturnType<typeof mount>) => w.findAllComponents({ name: "CommandCell" });
 
@@ -118,7 +134,7 @@ const rosterRow = (uid: number, over: Partial<CockpitRow> = {}): CockpitRow => (
 });
 // The row menu is teleported to <body>, so its items are reached through the document.
 const menuItem = (id: string) => new DOMWrapper(document.querySelector(`[data-testid="${id}"]`) as Element);
-const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], reorderable = false, listMode = true) =>
+const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], listMode = true) =>
   mount(TerminalGrid, {
     props: {
       cells,
@@ -130,10 +146,98 @@ const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[]
       home: "/work",
       openSessionIds: [],
       openCwds: [],
-      reorderable,
       listMode,
     },
   });
+
+// The tiled grid reorders by the same gesture as the roster: the handle at the head of a tile's
+// header. The real tile moves as the pointer goes — a tile is a live terminal, and moving it IS the
+// preview — so each new slot is reported once, beside a tile, and the parent resolves it against the
+// whole order (this component only sees one page). jsdom has no DragEvent and zero-sized rects, so
+// the events and the geometry are stated by hand.
+describe("TerminalGrid tiled drag-and-drop reorder", () => {
+  const transfer = dragTransfer;
+  const fire = fireEvent;
+  const pickUp = (w: ReturnType<typeof mount>, nth: number, dt = transfer()) => {
+    cellsOf(w)[nth].vm.$emit("drag-handle", Object.assign(new Event("dragstart"), { dataTransfer: dt }));
+    return dt;
+  };
+  // A tile 100px wide starting at x=200: its halves split at 250.
+  const placed = (el: Element) => {
+    Object.defineProperty(el, "getBoundingClientRect", {
+      value: () => ({ left: 200, width: 100, right: 300, top: 0, height: 100, bottom: 100, x: 200, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    return el;
+  };
+  const three = () => [cell(0, "s0"), cell(1, "s1"), cell(2, "s2")];
+
+  it("asks for manual order the moment a tile is picked up, carrying no plain text", async () => {
+    const w = mountGrid(three());
+    const dt = pickUp(w, 0);
+    expect(w.emitted("manual-order")).toHaveLength(1);
+    // Not text/plain: released over a terminal, plain text is what an editable takes as typing.
+    expect(dt.setData).toHaveBeenCalledWith("application/x-mulmoterminal-tile", "0");
+    w.unmount();
+  });
+
+  it("names the tile it is over and which half, once per slot", async () => {
+    const w = mountGrid(three());
+    const dt = pickUp(w, 0);
+    const tile = placed(cellsOf(w)[2].element);
+    const over = fire(tile, "dragover", { clientX: 280, dataTransfer: dt });
+    expect(over.defaultPrevented).toBe(true);
+    expect(w.emitted("move-beside")).toEqual([[0, 2, true]]);
+    fire(tile, "dragover", { clientX: 290, dataTransfer: dt }); // same slot: nothing new
+    expect(w.emitted("move-beside")).toHaveLength(1);
+    fire(tile, "dragover", { clientX: 210, dataTransfer: dt }); // left half: before it
+    expect(w.emitted("move-beside")?.[1]).toEqual([0, 2, false]);
+    w.unmount();
+  });
+
+  // The move already happened; the drop must not fall through to the browser's own, over a terminal.
+  it("swallows the drop and ends the drag", async () => {
+    const w = mountGrid(three());
+    const dt = pickUp(w, 0);
+    const tile = placed(cellsOf(w)[1].element);
+    expect(fire(tile, "drop", { dataTransfer: dt }).defaultPrevented).toBe(true);
+    expect(fire(tile, "dragover", { clientX: 280, dataTransfer: dt }).defaultPrevented).toBe(false);
+    w.unmount();
+  });
+
+  // A file dragged onto a terminal is the terminal's business, not a reorder.
+  it("leaves a drag it did not start alone", async () => {
+    const w = mountGrid(three());
+    const over = fire(placed(cellsOf(w)[1].element), "dragover", { clientX: 280, dataTransfer: transfer() });
+    expect(over.defaultPrevented).toBe(false);
+    expect(w.emitted("move-beside")).toBeUndefined();
+    w.unmount();
+  });
+
+  // A tile drag whose `dragend` never came (its handle left the page mid-drag) must not turn the next
+  // file dragged over the grid into a reorder — and meeting that file ends the stale drag.
+  it("takes a drag carrying no tile for someone else's, even with a tile drag left open", async () => {
+    const w = mountGrid(three());
+    pickUp(w, 0); // no dragend follows
+    await w.vm.$nextTick();
+    expect(cellsOf(w)[0].classes()).toContain("opacity-50");
+    const file = transfer();
+    file.types.push("Files");
+    const over = fire(placed(cellsOf(w)[2].element), "dragover", { clientX: 280, dataTransfer: file });
+    expect(over.defaultPrevented).toBe(false);
+    expect(w.emitted("move-beside")).toBeUndefined();
+    await w.vm.$nextTick();
+    expect(cellsOf(w)[0].classes()).not.toContain("opacity-50");
+    w.unmount();
+  });
+
+  it("does nothing while a cell is enlarged — the roster is where that reorders", async () => {
+    const w = mountGrid(three(), 1);
+    pickUp(w, 0);
+    expect(w.emitted("manual-order")).toBeUndefined();
+    w.unmount();
+  });
+});
 
 describe("TerminalGrid (page renderer)", () => {
   it("renders one TerminalCell per cell", () => {
@@ -159,12 +263,11 @@ describe("TerminalGrid (page renderer)", () => {
     expect(w.emitted("toggle-expand")?.[0]).toEqual([7]);
   });
 
-  it("passes reorderable through and re-emits move/status tagged with uid", () => {
-    const w = mountGrid([cell(7, "s")], null, true);
-    expect(cellsOf(w)[0].props("reorderable")).toBe(true);
-    cellsOf(w)[0].vm.$emit("move", 1);
+  // Reordering is the roster's alone now — its ⋮ and its drag handle, below. A cell carries no move
+  // buttons, so its status is what is left for the grid to relay.
+  it("re-emits status tagged with uid", () => {
+    const w = mountGrid([cell(7, "s")]);
     cellsOf(w)[0].vm.$emit("status", "waiting");
-    expect(w.emitted("move")?.[0]).toEqual([7, 1]);
     expect(w.emitted("status")?.[0]).toEqual([7, "waiting"]);
   });
 
@@ -180,23 +283,17 @@ describe("TerminalGrid (page renderer)", () => {
     expect(rows[0].classes()).not.toContain("opacity-45");
   });
 
-  // #2299: the ⋮ is the row's action menu now, so it is on every row whatever the sort; only its
-  // move items depend on manual mode.
-  it("puts a ⋮ menu on every cockpit row, with move items only in manual mode", async () => {
-    const cells = [cell(0, "s0"), cell(1, "s1"), cell(2)]; // two running + a trailing launch cell
-    const rows = [rosterRow(0), rosterRow(1)];
-    const auto = mountCockpit(cells, 0, rows);
+  // #2299: the ⋮ is the row's action menu, on every row whatever the sort. It carries no move items:
+  // the drag handle is the one pointer route to a reorder, in every order mode, and the command
+  // palette's "Move this terminal earlier / later" is the keyboard's.
+  it("puts a ⋮ menu on every cockpit row, with no move items in it", async () => {
+    const w = mountCockpit([cell(0, "s0"), cell(1, "s1"), cell(2)], 0, [rosterRow(0), rosterRow(1)]);
     await nextTick();
-    expect(auto.findAll('[data-testid="cockpit-row-menu"]')).toHaveLength(2);
-    await auto.findAll('[data-testid="cockpit-row-menu"]')[1].trigger("click");
-    expect(document.querySelector('[data-testid="reorder-up"]')).toBeNull();
-    auto.unmount();
-
-    const w = mountCockpit(cells, 0, rows, true);
-    await nextTick();
+    expect(w.findAll('[data-testid="cockpit-row-menu"]')).toHaveLength(2);
     await w.findAll('[data-testid="cockpit-row-menu"]')[1].trigger("click");
-    await menuItem("reorder-up").trigger("click");
-    expect(w.emitted("move")?.[0]).toEqual([1, -1]);
+    expect(document.querySelector('[data-testid="cockpit-row-menu-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="reorder-up"]')).toBeNull();
+    expect(document.querySelector('[data-testid="reorder-down"]')).toBeNull();
     w.unmount();
   });
 
@@ -281,13 +378,8 @@ describe("TerminalGrid (page renderer)", () => {
     const dragRows = [rosterRow(0), rosterRow(1), rosterRow(2)];
     const ROW_H = 100;
 
-    const transfer = () => ({ effectAllowed: "", dropEffect: "", setData: vi.fn(), setDragImage: vi.fn() });
-    const fire = (el: Element, type: string, props: Record<string, unknown> = {}) => {
-      const event = new Event(type, { bubbles: true, cancelable: true });
-      for (const [key, value] of Object.entries(props)) Object.defineProperty(event, key, { value, configurable: true });
-      el.dispatchEvent(event);
-      return event;
-    };
+    const transfer = dragTransfer;
+    const fire = fireEvent;
 
     const rowsOf = (w: ReturnType<typeof mount>) => w.findAll('[data-testid="cockpit-row"]');
     // The rendered order, which is the preview while a drag is in flight.
@@ -309,8 +401,8 @@ describe("TerminalGrid (page renderer)", () => {
       });
     };
 
-    const mountDrag = async (cells = dragCells, rows = dragRows, reorderable = true) => {
-      const w = mountCockpit(cells, 0, rows, reorderable);
+    const mountDrag = async (cells = dragCells, rows = dragRows) => {
+      const w = mountCockpit(cells, 0, rows);
       await nextTick();
       layout(w);
       return { w, roster: w.get('[data-testid="cockpit"]').element };
@@ -325,12 +417,13 @@ describe("TerminalGrid (page renderer)", () => {
       return event;
     };
 
-    it("puts a drag handle on every row in manual mode and none in auto", async () => {
+    // Whatever the order mode: touching the order makes it the user's, so a drag asks the parent to
+    // switch to manual (adopting what is on screen) the moment it starts.
+    it("puts a drag handle on every row, and a drag asks for manual order as it starts", async () => {
       const { w } = await mountDrag();
       expect(w.findAll('[data-testid="cockpit-drag"]')).toHaveLength(3);
-      const auto = mountCockpit(dragCells, 0, dragRows, false);
-      await nextTick();
-      expect(auto.find('[data-testid="cockpit-drag"]').exists()).toBe(false);
+      startDrag(w, 1);
+      expect(w.emitted("manual-order")).toHaveLength(1);
     });
 
     // The ghost has to be the ROW — the handle is 16px, so the browser's default would be 16px of
@@ -814,19 +907,27 @@ describe("grid cockpit (list view)", () => {
 // rather than as another child of the stage.
 describe("file pane beside the enlarged cell", () => {
   const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "FilesPane" });
+  // The cell's Panel button. It reopens the pane used last, and a grid that has shown none yet
+  // starts on Files — so on every mount here it is the files toggle the header used to have.
   // Idempotent: the open state persists, so a second mount in the same test may already
   // have it, and a blind toggle would close it.
   const openPane = async (w: ReturnType<typeof mount>) => {
     if (paneOf(w).exists()) return;
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await nextTick();
   };
   // The same for a cell that is NOT the enlarged one. Since #1378 each cell has its own answer,
   // so a test that walks the zoom has to say what the cell it walks TO has open — otherwise the
-  // pane closes on arrival, which is the feature rather than a broken fixture.
+  // pane closes on arrival, which is the feature rather than a broken fixture. Files, because that
+  // is the pane last used whenever this is called.
   const openPaneOnCell = async (w: ReturnType<typeof mount>, index: number) => {
-    await w.findAllComponents({ name: "TerminalCell" })[index].vm.$emit("toggle-files");
+    await w.findAllComponents({ name: "TerminalCell" })[index].vm.$emit("toggle-panel");
     await nextTick();
+  };
+  // A tab in the side pane: switches the cell on screen to that pane, and never closes one.
+  const pickTab = async (w: ReturnType<typeof mount>, pane: string) => {
+    await w.get(`[data-testid="side-pane-tab-${pane}"]`).trigger("click");
+    await flushPromises();
   };
 
   // The zoom FLIP asks for prefers-reduced-motion, which jsdom omits; these tests move the
@@ -865,7 +966,7 @@ describe("file pane beside the enlarged cell", () => {
     ["list", true],
     ["strip", false],
   ])("puts the pane beside the enlarged terminal in %s mode", async (_name, listMode) => {
-    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], listMode);
     await openPane(w);
     const row = w.find(".zoom-main").element.parentElement;
     expect(row?.contains(paneOf(w).element)).toBe(true);
@@ -927,12 +1028,12 @@ describe("file pane beside the enlarged cell", () => {
     expect(label.attributes("title")).toBe("/one");
   });
 
-  // Closing unmounts the pane, buffer and all — so the toggle saves on the way out.
-  it("saves before the header toggle closes the pane", async () => {
+  // Closing unmounts the pane, buffer and all — so the Panel button saves on the way out.
+  it("saves before the header's Panel button closes the pane", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await openPane(w);
 
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
     expect(paneStub.flush).toHaveBeenCalledTimes(1);
     expect(paneOf(w).exists()).toBe(false);
@@ -1085,9 +1186,9 @@ describe("file pane beside the enlarged cell", () => {
     await openPane(w);
     paneStub.snapshot.mockReturnValueOnce({ openPath: "a.md", expanded: [] });
 
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
     expect(paneOf(w).props("initialState")).toEqual({ openPath: "a.md", expanded: [] });
   });
@@ -1151,15 +1252,14 @@ describe("file pane beside the enlarged cell", () => {
       expect(paneOf(w).exists()).toBe(false); // cell 2 never asked
     });
 
+    // Cell 2 reaches its Canvas the way a user does now: enlarged, its Panel button, then the tab.
     it("gives each cell back what it had, walking the zoom between them", async () => {
       const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
       await openPane(w); // cell 1: files
-      await w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-canvas"); // cell 2: canvas
-      await flushPromises();
-      expect(paneOf(w).exists()).toBe(true); // still cell 1's, which is the one enlarged
-
       await w.setProps({ expandedUid: 2 });
       await flushPromises();
+      await openPaneOnCell(w, 1);
+      await pickTab(w, "canvas"); // cell 2: canvas
       expect(paneOf(w).exists()).toBe(false);
       expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
 
@@ -1167,23 +1267,32 @@ describe("file pane beside the enlarged cell", () => {
       await flushPromises();
       expect(paneOf(w).exists()).toBe(true);
       expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(false);
+
+      await w.setProps({ expandedUid: 2 });
+      await flushPromises();
+      expect(paneOf(w).exists()).toBe(false);
+      expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
     });
 
     // A pane asked for while the grid is tiled is that cell's answer for when it IS enlarged —
-    // which is the case the issue opens with (#1378): the canvas cannot open with nothing zoomed.
+    // which is the case the issue opens with (#1378): the pane cannot open with nothing zoomed.
+    // The Panel button records the pane last used, which here is Files — so the tiled press is
+    // proved to have moved nothing by the one pane staying on the directory it was on.
     it("opens on enlarging a cell whose pane was asked for while tiled", async () => {
       const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
       await openPane(w);
       await w.setProps({ expandedUid: null });
       await flushPromises();
 
-      await w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-canvas");
+      await openPaneOnCell(w, 1);
       await flushPromises();
-      expect(paneOf(w).exists()).toBe(true); // the tiled press moved nothing: cell 1's pane stays
+      // The tiled press moved nothing: cell 1's pane stays where it is, its buffer untouched.
+      expect(paneOf(w).props("cwd")).toBe("/one");
+      expect(paneStub.flush).not.toHaveBeenCalled();
 
       await w.setProps({ expandedUid: 2 });
       await flushPromises();
-      expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
+      expect(paneOf(w).props("cwd")).toBe("/two");
     });
 
     // Closing is an answer, not the absence of one — a reload must not hand the cell back a pane
@@ -1191,13 +1300,66 @@ describe("file pane beside the enlarged cell", () => {
     it("keeps a cell closed after the user closes it", async () => {
       const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
       await openPane(w);
-      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+      expect(paneOf(w).exists()).toBe(true); // or the close below closes nothing
+      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
       await flushPromises();
 
       const reopened = mountCockpit([cell(9, "s1", "/proj"), cell(10)], 9, []);
       await flushPromises();
       expect(paneOf(reopened).exists()).toBe(false);
     });
+  });
+});
+
+// The tabs replaced a header button per pane, so what the side pane offers is the grid's to decide
+// now. Collections is the one tab that depends on the directory: the pane is a window onto the
+// `data` group's store, so where that group is not registered there is no tab for it — unlike
+// Canvas, which stays and explains itself in the pane.
+describe("the side pane's tabs", () => {
+  const ok = (body: unknown) => ({ ok: true, json: async () => body }) as unknown as Response;
+  const answerGroups = (groups: string[]) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("/api/tools")) return ok({ groups });
+      if (u.includes("/api/question/")) return ok({ question: null });
+      return ok({ toolResults: [] });
+    }) as unknown as typeof fetch;
+  };
+  const tabsOf = (w: ReturnType<typeof mount>) => w.findAll('[role="tab"]').map((tab) => tab.attributes("data-testid"));
+  const EVERY_PANE_BUT_COLLECTIONS = ["files", "canvas", "tools", "prompts", "transcript"].map((pane) => `side-pane-tab-${pane}`);
+
+  beforeEach(() => localStorage.clear());
+
+  it("offers Collections only where the directory has the collection tools", async () => {
+    answerGroups([]);
+    const without = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    without.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+    expect(tabsOf(without)).toEqual(EVERY_PANE_BUT_COLLECTIONS);
+    without.unmount();
+
+    // The open pane is remembered by session, and a Panel press on a pane that is already up
+    // closes it — so the second grid starts from nothing, as the first did.
+    localStorage.clear();
+    answerGroups(["data"]);
+    const withTools = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    withTools.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+    expect(tabsOf(withTools)).toEqual([...EVERY_PANE_BUT_COLLECTIONS, "side-pane-tab-collections"]);
+  });
+
+  // A pane on screen must stay named. Losing the tools mid-session (a relaunch, a reconnect that
+  // answers differently) or coming back to a pane remembered from before must not leave the strip
+  // with no tab for what is showing under it.
+  it("keeps the Collections tab while its pane is showing, even with the tools gone", async () => {
+    answerGroups([]);
+    localStorage.setItem("pane_open_by_session", JSON.stringify({ s1: "collections" }));
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    expect(w.findComponent({ name: "CollectionsPane" }).exists()).toBe(true);
+    expect(w.get('[data-testid="side-pane-tab-collections"]').attributes("aria-selected")).toBe("true");
   });
 });
 
@@ -1237,8 +1399,8 @@ describe("file pane width restored from storage", () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await flushPromises();
     // 1000 wide, terminal keeps MIN_TERMINAL (320), the separator and border take PANE_CHROME →
-    // the pane gets what is left.
-    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain(`${PANE_ROOM - 320}px`);
+    // the pane gets what is left. The width is the side-pane column's, which every pane fills.
+    expect(w.get('[data-testid="side-pane"]').attributes("style")).toContain(`${PANE_ROOM - 320}px`);
   });
 
   // The single view's splitter announces its range; a screen-reader user resizing this one gets
@@ -1259,7 +1421,7 @@ describe("file pane width restored from storage", () => {
     localStorage.setItem("files_pane_width", "400");
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await flushPromises();
-    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("400px");
+    expect(w.get('[data-testid="side-pane"]').attributes("style")).toContain("400px");
   });
 });
 
@@ -1292,6 +1454,9 @@ describe("open-in-canvas", () => {
   // Only the WRITE is held open; the reads the grid makes on expand must settle as usual. The two
   // are told apart by the trailing `s`, not by a substring test — `/toolResults/<id>` CONTAINS
   // `/toolResult`, so a `.includes` here holds the read as well and the race under test never runs.
+  //
+  // `/api/tools` answers "no drawing tools" rather than nothing: an unanswered ask leaves the pane
+  // with no message whatever the card flag says, and the flag is what the last test here reads.
   const deferredWrite = () => {
     const held: Array<() => void> = [];
     globalThis.fetch = vi.fn(
@@ -1300,19 +1465,25 @@ describe("open-in-canvas", () => {
           const u = String(url);
           if (u.includes("/api/agent/toolResults/")) return resolve(ok({ toolResults: [] }));
           if (u.includes("/api/agent/toolResult")) return void held.push(() => resolve(ok({ ok: true })));
-          resolve(ok({ tools: [] }));
+          resolve(ok({ tools: [], groups: [] }));
         }),
     ) as unknown as typeof fetch;
     return () => held.forEach((r) => r());
   };
 
+  // The enlarged cell's Panel button, which opens Files on a grid that has shown no pane yet.
+  const pressPanel = async (w: ReturnType<typeof mount>) => {
+    await w
+      .findAllComponents({ name: "TerminalCell" })
+      .find((c) => c.props("expanded"))
+      ?.vm.$emit("toggle-panel");
+    await flushPromises();
+  };
+
   const gridWithPaneOpen = async () => {
     const w = mountGrid([cell(1, "s-one", "/work/a"), cell(2, "s-two", "/work/b")], 1);
     await flushPromises();
-    if (!w.findComponent({ name: "FilesPane" }).exists()) {
-      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-      await flushPromises();
-    }
+    if (!w.findComponent({ name: "FilesPane" }).exists()) await pressPanel(w);
     return w;
   };
 
@@ -1353,8 +1524,15 @@ describe("open-in-canvas", () => {
     await flushPromises();
     // The premise, both halves. The session has no canvas group AND the grid has been told so —
     // an unanswered `/api/tools` leaves `canvasChecked` false, and then the pane carries no
-    // message whatever this flag says, which is a test that cannot fail.
-    expect(w.findComponent({ name: "TerminalCell" }).props("canvasAvailable")).toBe(false);
+    // message whatever this flag says, which is a test that cannot fail. With no Canvas button left
+    // to read that from, the pane says it itself: opened from its tab, then put away again. The
+    // tab re-asks nothing, so the flag it shows is still the one taken on enlarging.
+    await pressPanel(w);
+    await w.get('[data-testid="side-pane-tab-canvas"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBe("no-canvas-mcp");
+    w.findComponent({ name: "GuiPanel" }).vm.$emit("close");
+    await flushPromises();
     expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(false);
 
     // What the deck route has already done by the time it emits: the card is in the store.
@@ -1365,9 +1543,6 @@ describe("open-in-canvas", () => {
     expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBeNull();
   });
 
-  // The cell moved on while the write was in flight. `canvasHasCard` is one flag for whichever
-  // cell is enlarged, so a late reply would enable the SECOND cell's Canvas button on the strength
-  // of a card written for the first — and pressing it opens a Canvas with nothing of its own in it.
   // A refusal is the server's sentence about the file that was clicked, and the reopen it comes
   // from is a round trip. Walk to another cell while it is in flight and the pane on screen is
   // rooted somewhere else — writing there names a file that tree is not showing (Codex on #1942).
@@ -1400,11 +1575,7 @@ describe("open-in-canvas", () => {
     // would be untestable: the mutation would pass.
     await w.setProps({ expandedUid: 2 });
     await flushPromises();
-    const enlarged = w.findAllComponents({ name: "TerminalCell" }).find((c) => c.props("expanded"));
-    if (!w.findComponent({ name: "FilesPane" }).exists()) {
-      enlarged?.vm.$emit("toggle-files");
-      await flushPromises();
-    }
+    if (!w.findComponent({ name: "FilesPane" }).exists()) await pressPanel(w);
     expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(true); // a pane IS on screen to mis-write into
     held.forEach((release) => release());
     await flushPromises();
@@ -1439,11 +1610,7 @@ describe("open-in-canvas", () => {
     asked.vm.$emit("close");
     await flushPromises();
     expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(false);
-    await w
-      .findAllComponents({ name: "TerminalCell" })
-      .find((c) => c.props("expanded"))
-      ?.vm.$emit("toggle-files");
-    await flushPromises();
+    await pressPanel(w); // Files again: the pane used last
     const reopened = w.findComponent({ name: "FilesPane" });
     expect(reopened.exists()).toBe(true);
 
@@ -1476,7 +1643,14 @@ describe("open-in-canvas", () => {
     expect(w.find(".stub-gui-panel").exists()).toBe(false); // and no Canvas was opened on a refusal
   });
 
-  it("does not enable the Canvas button on the cell the zoom moved to", async () => {
+  // The cell moved on while the write was in flight. `canvasHasCard` is one flag for whichever
+  // cell is enlarged, so a late reply would credit the SECOND cell with a card written for the
+  // first — and its Canvas would then open with no word about why nothing of its own is in it.
+  //
+  // Read off the pane's message, which is where that flag shows now there is no Canvas button to
+  // enable. Opened from the tab rather than from the unread chip's `open-canvas`: that one re-asks
+  // the store, and would put the right answer back over the wrong one before anything could see it.
+  it("does not credit the card to the cell the zoom moved to", async () => {
     const release = deferredWrite();
     const w = await gridWithPaneOpen();
     await pickFile(w);
@@ -1486,19 +1660,34 @@ describe("open-in-canvas", () => {
     await flushPromises();
     const enlarged = w.findAllComponents({ name: "TerminalCell" }).find((c) => c.props("expanded"));
     expect(enlarged?.props("initialSessionId")).toBe("s-two");
-    expect(enlarged?.props("canvasAvailable")).toBe(false);
+
+    await pressPanel(w);
+    await w.get('[data-testid="side-pane-tab-canvas"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBe("no-canvas-mcp");
   });
 });
 
 // The prompts pane's own behaviour has its own spec; what the GRID owes it is the wiring — the
-// header button's event has to reach `toggleRightPane`, and the pane has to land in the row beside
-// the enlarged terminal in both zoomed modes. A button whose event the grid does not map is dead
-// and typechecks (#1573), which is why this is asserted rather than read. (CodeRabbit, #1749.)
+// header's Panel button has to reach `toggleRightPane`, its tab has to switch to it, and the pane
+// has to land in the row beside the enlarged terminal in both zoomed modes. A button whose event
+// the grid does not map is dead and typechecks (#1573), which is why this is asserted rather than
+// read. (CodeRabbit, #1749.)
 describe("prompts pane beside the enlarged cell", () => {
   const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "PromptsPane" });
-  const togglePrompts = async (w: ReturnType<typeof mount>) => {
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-prompts");
-    await nextTick();
+  const pressPanel = async (w: ReturnType<typeof mount>) => {
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+  };
+  const promptsTab = async (w: ReturnType<typeof mount>) => {
+    await w.get('[data-testid="side-pane-tab-prompts"]').trigger("click");
+    await flushPromises();
+  };
+  // The Panel button opens the pane used last — Files, on a grid that has shown none — and the tab
+  // is how Prompts is reached from there.
+  const openPrompts = async (w: ReturnType<typeof mount>) => {
+    await pressPanel(w);
+    await promptsTab(w);
   };
 
   beforeEach(() => localStorage.clear());
@@ -1507,24 +1696,36 @@ describe("prompts pane beside the enlarged cell", () => {
     ["list", true],
     ["strip", false],
   ])("opens beside the enlarged terminal in %s mode", async (_name, listMode) => {
-    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], listMode);
     expect(paneOf(w).exists()).toBe(false);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).exists()).toBe(true);
     expect(w.find(".zoom-main").element.parentElement?.contains(paneOf(w).element)).toBe(true);
   });
 
-  it("closes on the same button — it is the pane's only other close", async () => {
+  // A tab only ever switches: a second click on the one showing is not the toggle a header button
+  // was, and the Panel button is what puts the pane away. Pressed again, it brings back the pane
+  // used LAST rather than Files — that memory is the whole reason one button can stand in for a
+  // toggle per pane.
+  it("keeps the pane on a second click of its tab, closes on the Panel button, and comes back on it", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
-    await togglePrompts(w);
-    await togglePrompts(w);
+    await openPrompts(w);
+    await promptsTab(w);
+    expect(paneOf(w).exists()).toBe(true);
+
+    await pressPanel(w);
     expect(paneOf(w).exists()).toBe(false);
+    expect(w.find('[data-testid="side-pane"]').exists()).toBe(false);
+
+    await pressPanel(w);
+    expect(paneOf(w).exists()).toBe(true);
+    expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(false);
   });
 
   // Which log to read is decided from the CELL, so the pane cannot ask for the right one on its own.
   it("hands it the enlarged cell's session, directory and agent", async () => {
     const w = mountCockpit([{ uid: 1, session: "s1", cwd: "/proj", agent: "codex" }, cell(2)], 1, []);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).props("sessionId")).toBe("s1");
     expect(paneOf(w).props("cwd")).toBe("/proj");
     expect(paneOf(w).props("agent")).toBe("codex");
@@ -1533,7 +1734,7 @@ describe("prompts pane beside the enlarged cell", () => {
   // Absent means Claude, the way a persisted cell encodes the default.
   it("reads a cell with no agent as claude", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).props("agent")).toBe("claude");
   });
 });

@@ -1,4 +1,4 @@
-// How the toolbar renders the remote-host channel. Split out of RemoteHostControl.vue so
+// How the toolbar renders the remote-host channel. Split out of the remote-host composable (useRemoteHost.ts) so
 // the rule is assertable without mounting the Firebase-importing component.
 //
 // The rule that matters: "Online" needs BOTH a connected lifecycle and a live

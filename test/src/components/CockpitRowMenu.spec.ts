@@ -4,15 +4,12 @@ import CockpitRowMenu from "../../../src/components/CockpitRowMenu.vue";
 import type { AttentionAction, MenuPoint } from "../../../src/components/rowMenu";
 
 interface MenuProps {
-  canUp: boolean;
-  canDown: boolean;
-  reorderable: boolean;
   attention: AttentionAction | null;
   parkable: boolean;
   parked: boolean;
   at?: MenuPoint | null;
 }
-const BASE: MenuProps = { canUp: true, canDown: true, reorderable: true, attention: "unread", parkable: true, parked: false };
+const BASE: MenuProps = { attention: "unread", parkable: true, parked: false };
 
 // The dropdown is teleported to <body>, so it lives outside the wrapper — query the document.
 const PANEL = '[data-testid="cockpit-row-menu-panel"]';
@@ -39,35 +36,10 @@ describe("CockpitRowMenu", () => {
     w.unmount();
   });
 
-  // The whole point of the layout (#2299): unread first, close last, never neighbours.
-  it("puts mark-unread first and close last, with reorder between them", async () => {
+  // The whole point of the layout (#2299): unread first, close last, never neighbours. No move items
+  // between them: reordering is the row's drag handle (and the command palette's move actions).
+  it("puts mark-unread first and close last, with nothing to move the row", async () => {
     const w = await openFromKebab();
-    expect(itemIds()).toEqual(["row-mark-unread", "reorder-up", "reorder-down", "row-park", "row-close"]);
-    w.unmount();
-  });
-
-  it("emits move(-1) for up and move(1) for down, then closes", async () => {
-    const w = await openFromKebab();
-    await item("reorder-up").trigger("click");
-    expect(w.emitted("move")?.[0]).toEqual([-1]);
-    expect(menuOpen()).toBe(false);
-
-    await kebab(w).trigger("click");
-    await item("reorder-down").trigger("click");
-    expect(w.emitted("move")?.[1]).toEqual([1]);
-    w.unmount();
-  });
-
-  it("disables the direction that can't move and does not emit for it", async () => {
-    const w = await openFromKebab({ canUp: false });
-    expect(item("reorder-up").attributes("disabled")).toBeDefined();
-    await item("reorder-up").trigger("click");
-    expect(w.emitted("move")).toBeUndefined();
-    w.unmount();
-  });
-
-  it("leaves the reorder items out outside manual sort", async () => {
-    const w = await openFromKebab({ reorderable: false });
     expect(itemIds()).toEqual(["row-mark-unread", "row-park", "row-close"]);
     w.unmount();
   });

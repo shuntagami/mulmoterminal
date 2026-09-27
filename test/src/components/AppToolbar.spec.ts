@@ -2,13 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import AppToolbar from "../../../src/components/AppToolbar.vue";
 import { router } from "../../../src/router/index";
-import { githubGotoIndex } from "../../../src/composables/useGithubView";
 import { setToolbarPins } from "../../../src/composables/toolbarPins";
 import { holdCollectionChat, resetCollectionChats } from "../../../src/composables/collectionChatSessions";
 import { collectionChatKey } from "../../../src/composables/collectionChatKey";
 import type { SpawnedChatRequest } from "../../../src/composables/useSpawnedChat";
 import type { Shortcut } from "../../../common/shortcuts";
 import { closeCommandPalette, paletteOpen } from "../../../src/composables/commandPalette";
+import { useAppConfig } from "../../../src/composables/useAppConfig";
+import { setWorklogEnabled } from "../../../src/composables/worklog";
+import { roomsExist } from "../../../src/composables/useRooms";
 
 // The pinned favourites the toolbar draws from (#1984). Stubbed rather than fetched: the real store
 // loads them over /api/shortcuts, which is a request every mount in this file would otherwise make.
@@ -18,262 +20,218 @@ vi.mock("../../../src/composables/useShortcuts", async () => {
   return { useShortcuts: () => ({ shortcuts: computed(() => pinned.current) }) };
 });
 
-// The toolbar is ONE component rendered by both views (GridView and App), so which buttons
-// it offers is decided by the route, not by a prop (#886).
+// The toolbar asks the server whether any room exists; here the tests say so themselves.
+vi.mock("../../../src/composables/useRooms", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../src/composables/useRooms")>();
+  return { ...original, listRooms: async () => [] };
+});
+
 const settle = () => flushPromises();
 
-const labelsOf = (wrapper: ReturnType<typeof mount>): string[] =>
-  wrapper
-    .findAll("nav[aria-label='Views'] button")
-    .map((b) => b.attributes("aria-label") ?? b.attributes("title") ?? "")
-    .filter(Boolean);
-
-const mountAt = async (path: string) => {
+type Wrapper = ReturnType<typeof mount>;
+const mountAt = async (path: string, props: Record<string, unknown> = {}) => {
   await router.push(path);
   await settle();
-  const wrapper = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+  const wrapper = mount(AppToolbar, { props, global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostStatus: true } } });
   await settle();
   return wrapper;
 };
 
-describe("AppToolbar per-view buttons", () => {
-  beforeEach(async () => {
-    await router.push("/terminals");
-    await settle();
-  });
+const screensOf = (wrapper: Wrapper): string[] => wrapper.findAll("[data-testid='toolbar-screens'] button").map((b) => b.attributes("data-testid") ?? "");
+const currentScreen = (wrapper: Wrapper): string | undefined => wrapper.find("[data-testid='toolbar-screens'] [aria-current='page']").attributes("data-testid");
+const currentSection = (wrapper: Wrapper): string | undefined =>
+  wrapper.find("[data-testid='toolbar-sections'] [aria-current='page']").attributes("data-testid");
 
-  // Collections is the DOOR to the workspace's own data, and it stands beside the views it is a
-  // peer of. It used to be single-view only (#886), which left the content surfaces with no way in
-  // at all once that view goes.
-  it("offers Collections from the grid", async () => {
-    expect(labelsOf(await mountAt("/terminals"))).toEqual(expect.arrayContaining(["Grid view", "Collections"]));
-  });
+const resetAvailability = () => {
+  useAppConfig().prRepos.value = [];
+  setWorklogEnabled(false);
+  roomsExist.value = false;
+};
 
-  // Its siblings are NOT always present: one door, not five. A terminal user's row does not grow
-  // by four buttons for surfaces they are not in.
-  it("does not offer the other content surfaces from the grid", async () => {
-    const labels = labelsOf(await mountAt("/terminals"));
-    expect(labels).not.toContain("Feeds");
-    expect(labels).not.toContain("Wiki");
-    expect(labels).not.toContain("Accounting");
-    expect(labels).not.toContain("Files");
-  });
+beforeEach(async () => {
+  resetAvailability();
+  await router.push("/terminals");
+  await settle();
+});
+afterEach(resetAvailability);
 
-  // ...and they appear once you are inside, which is what makes the single button a door rather
-  // than a dead end.
-  it("reveals the sibling surfaces inside the content section", async () => {
-    const labels = labelsOf(await mountAt("/collections"));
-    expect(labels).toEqual(expect.arrayContaining(["Collections", "Feeds", "Wiki", "Accounting", "Files"]));
-  });
-
-  it.each(["/feeds", "/wiki", "/accounting", "/files"])("keeps them revealed on %s, so moving between them does not blink", async (path) => {
-    expect(labelsOf(await mountAt(path))).toEqual(expect.arrayContaining(["Feeds", "Wiki", "Accounting", "Files"]));
-  });
-
-  // Work under supervision sits with the terminals rather than behind the Collections door, which
-  // is why these are not in CONTENT_ROUTES.
-  it.each(["Pull requests", "Worklog"])("offers %s on the grid", async (label) => {
-    expect(labelsOf(await mountAt("/terminals"))).toContain(label);
-  });
-
-  it("offers the grid-running controls on the grid", async () => {
-    // The ordering control's accessible name carries the CURRENT mode ("Grid cell ordering:
-    // manual (click for auto)"), because with three modes there is no binary aria-pressed to
-    // read it from — so match the stable prefix rather than a fixed string (#876).
-    const labels = labelsOf(await mountAt("/terminals"));
-    expect(labels).toContain("New terminal");
-    expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(true);
-  });
-
-  // ...and NOT while a full-screen overlay covers it. They act on cells nobody can see — a new
-  // terminal appearing behind the wiki, an ordering change nobody watches — and the rate gauge is
-  // status for a view that is not showing.
-  it.each(["/collections", "/wiki", "/files", "/accounting", "/prs"])("hides the grid's own controls on %s", async (path) => {
-    const labels = labelsOf(await mountAt(path));
-    expect(labels).not.toContain("Pull requests");
-    expect(labels).not.toContain("Worklog");
-    expect(labels).not.toContain("New terminal");
-    expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(false);
-  });
-
-  // Nobody is stranded by that: the switch group never hides, so Grid view brings the terminals
-  // back and their controls with them.
-  it.each(["/collections", "/prs"])("keeps the way back to the grid from %s", async (path) => {
-    expect(labelsOf(await mountAt(path))).toContain("Grid view");
-  });
-
-  // PRs is the one overlay that is NOT content — it is work under supervision, which belongs with
-  // the terminals — so opening it does not reveal the content siblings. The grid's own controls go
-  // with the grid, including the PRs button itself: the overlay covers the cells they act on.
-  it("shows neither the content siblings nor the grid controls while PRs is open", async () => {
-    await router.push("/terminals");
-    await settle();
-    githubGotoIndex();
-    await settle();
-
-    const labels = labelsOf(mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } }));
-    expect(labels).not.toContain("Feeds");
-    expect(labels).not.toContain("Accounting");
-    expect(labels).not.toContain("New terminal");
-    expect(labels).toContain("Grid view"); // ...and the way back is always there
-  });
-
-  // Regression: the button SET follows the view underneath, but the HIGHLIGHT follows the
-  // route. Answering both with one flag lit up Grid view AND Pull requests at once — and,
-  // because the overlays live inside App.vue's `!isGrid` block, also stopped the panel
-  // rendering at all: the URL changed and the grid just stayed on screen (#892).
-  const activeLabels = (wrapper: ReturnType<typeof mount>): string[] =>
-    wrapper
-      .findAll("nav[aria-label='Views'] button")
-      .filter((b) => b.classes().includes("bg-accent-bg"))
-      .map((b) => b.attributes("aria-label") ?? b.attributes("title") ?? "");
-
-  // Codex, on this PR. The door has to stay lit on the DETAIL pages, not just the index — opening
-  // one of the things behind it does not take you out of the section. With the grid's own controls
-  // hidden under an overlay, nothing else would be lit either, so the toolbar would show no
-  // selected destination at all while you are plainly inside collections.
+describe("AppToolbar — two tiers", () => {
+  // The top tier picks the section; which one is lit follows the route, never a click held in state.
   it.each([
-    ["/collections/todos", "Collections"],
-    ["/feeds/news", "Feeds"],
-  ])("keeps the door lit on %s", async (path, label) => {
-    const wrapper = await mountAt(path);
-    const lit = wrapper
-      .findAll("nav[aria-label='Views'] button")
-      .filter((b) => b.classes().includes("bg-accent-bg"))
-      .map((b) => b.attributes("aria-label"));
-    expect(lit).toEqual([label]);
+    ["/terminals", "section-terminal"],
+    ["/github", "section-terminal"],
+    ["/rooms", "section-terminal"],
+    ["/blueprints", "section-terminal"],
+    ["/wiki?tag=worklog", "section-terminal"],
+    ["/collections", "section-workspace"],
+    ["/feeds", "section-workspace"],
+    ["/wiki", "section-workspace"],
+    ["/accounting", "section-workspace"],
+    ["/files", "section-workspace"],
+  ])("lights the section %s belongs to", async (path, section) => {
+    expect(currentSection(await mountAt(path))).toBe(section);
   });
 
-  it("lights the collections door for a collection and not for a feed, on their detail pages", async () => {
-    // The two doors must not both light: they are different sections that share a component.
-    const wrapper = await mountAt("/collections/todos");
-    const labels = wrapper
-      .findAll("nav[aria-label='Views'] button")
-      .filter((b) => b.classes().includes("bg-accent-bg"))
-      .map((b) => b.attributes("aria-label"));
-    expect(labels).not.toContain("Feeds");
+  it("lights the screen you are on, in the tier below", async () => {
+    expect(currentScreen(await mountAt("/terminals"))).toBe("screen-grid");
+    expect(currentScreen(await mountAt("/wiki?tag=worklog"))).toBe("screen-worklog");
+    expect(currentScreen(await mountAt("/wiki"))).toBe("screen-wiki");
   });
 
-  it("highlights at most one view, and the grid only while it is showing", async () => {
-    await router.push("/terminals");
-    await settle();
-    const onGrid = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
-    expect(activeLabels(onGrid)).toEqual(["Grid view"]);
-
-    // Inside the content section the door stays lit, so there is always something saying where
-    // you are.
-    await router.push("/collections");
-    await settle();
-    const onCollections = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
-    expect(activeLabels(onCollections)).toEqual(["Collections"]);
-
-    // PRs is the one place with NO highlight: its own button hides with the grid controls, so
-    // nothing in the nav is lit. A consequence of hiding them, recorded rather than discovered.
-    githubGotoIndex();
-    await settle();
-    const onPrs = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
-    expect(activeLabels(onPrs)).toEqual([]);
-  });
-});
-
-// #941: the view switch is the only group in the nav that changes WHICH VIEW you are in. It is
-// fenced off with a rule; the group makes that structure reach a screen reader too, which a
-// border alone never does.
-describe("AppToolbar view-switch grouping", () => {
-  const switchGroup = (wrapper: ReturnType<typeof mount>) => wrapper.find("nav[aria-label='Views'] [role='group'][aria-label='Switch view']");
-
-  // Collections joined the group when it became a peer of the two views rather than a surface
-  // reachable only from one of them. It belongs INSIDE for the reason the group exists: it changes
-  // which view fills the screen, where everything to the right of the rule acts within the view
-  // you are already in.
-  it("groups the two view switches that remain", async () => {
-    const group = switchGroup(await mountAt("/terminals"));
-    expect(group.exists()).toBe(true);
-    expect(group.findAll("button").map((b) => b.attributes("aria-label"))).toEqual(["Grid view", "Collections"]);
+  it("offers the workspace's five screens inside the workspace", async () => {
+    expect(screensOf(await mountAt("/collections"))).toEqual(["screen-collections", "screen-feeds", "screen-wiki", "screen-accounting", "screen-files"]);
   });
 
-  // The rule is the separator. Losing it turns the nav back into one undifferentiated row,
-  // which is the whole bug — and a class change is exactly the edit that would do it silently.
-  it("carries the separating rule", async () => {
-    expect(switchGroup(await mountAt("/terminals")).classes()).toContain("border-r");
-  });
-
-  // Everything else stays OUTSIDE the group — a button that acts WITHIN the current view, swept
-  // in, would read as a view switch to a screen reader and sit on the wrong side of the rule.
-  it("leaves the within-view buttons out of the group", async () => {
-    // The grid, because that is where within-view buttons actually are — New terminal, the
-    // ordering control, PRs. On /chat the nav is now the group alone (its content surfaces moved
-    // behind the Collections door), so asserting there would pass on an empty nav.
+  it("moves to the first screen of a section from its tab", async () => {
     const wrapper = await mountAt("/terminals");
-    const grouped = switchGroup(wrapper).findAll("button").length;
-    expect(wrapper.findAll("nav[aria-label='Views'] button").length).toBeGreaterThan(grouped);
-  });
-
-  // The revealed siblings are within-view buttons: they move you around INSIDE the content
-  // section, so they belong beyond the rule even though the door to that section is inside it.
-  it("leaves the revealed siblings out of the group", async () => {
-    const group = switchGroup(await mountAt("/collections"));
-    expect(group.findAll("button").map((b) => b.attributes("aria-label"))).toEqual(["Grid view", "Collections"]);
+    await wrapper.get("[data-testid='section-workspace']").trigger("click");
+    await settle();
+    expect(router.currentRoute.value.path).toBe("/collections");
+    await wrapper.get("[data-testid='section-terminal']").trigger("click");
+    await settle();
+    expect(router.currentRoute.value.path).toBe("/terminals");
   });
 });
 
-// #2001: a chat running in the collection pane is not a grid cell, so nothing else on this screen
-// says it exists. The door it lives behind wears the count.
-describe("AppToolbar collection chat badge", () => {
+// A tab only for what is set up: each of these opens onto an empty screen otherwise.
+describe("AppToolbar — terminal screens follow what is set up", () => {
+  it("offers only the grid and blueprints when nothing is set up", async () => {
+    expect(screensOf(await mountAt("/terminals"))).toEqual(["screen-grid", "screen-blueprints"]);
+  });
+
+  it("offers PRs once a repository is configured, Rooms once one exists, the worklog while it is on", async () => {
+    useAppConfig().prRepos.value = ["receptron/mulmoterminal"];
+    roomsExist.value = true;
+    setWorklogEnabled(true);
+    expect(screensOf(await mountAt("/terminals"))).toEqual(["screen-grid", "screen-github", "screen-rooms", "screen-worklog", "screen-blueprints"]);
+  });
+
+  // A direct link must never leave nothing lit.
+  it("keeps the screen you are on even when it has nothing set up", async () => {
+    const wrapper = await mountAt("/rooms");
+    expect(screensOf(wrapper)).toContain("screen-rooms");
+    expect(currentScreen(wrapper)).toBe("screen-rooms");
+  });
+});
+
+describe("AppToolbar — new terminal", () => {
+  it("leads the terminal section and is absent from the workspace", async () => {
+    expect((await mountAt("/terminals")).find("[data-testid='toolbar-new-terminal']").exists()).toBe(true);
+    expect((await mountAt("/collections")).find("[data-testid='toolbar-new-terminal']").exists()).toBe(false);
+  });
+
+  it("asks for a new terminal from the grid", async () => {
+    const wrapper = await mountAt("/terminals");
+    await wrapper.get("[data-testid='toolbar-new-terminal']").trigger("click");
+    await settle();
+    expect(wrapper.emitted("add-terminal")).toHaveLength(1);
+  });
+
+  // A terminal lands in the grid, so another screen of the section brings the grid back first.
+  it("brings the grid back first from another screen", async () => {
+    const wrapper = await mountAt("/blueprints");
+    await wrapper.get("[data-testid='toolbar-new-terminal']").trigger("click");
+    await settle();
+    expect(router.currentRoute.value.path).toBe("/terminals");
+    expect(wrapper.emitted("add-terminal")).toHaveLength(1);
+  });
+});
+
+describe("AppToolbar — the grid's own controls", () => {
+  it("shows the order menu on the grid and nowhere else", async () => {
+    expect((await mountAt("/terminals")).find("[data-testid='sort-mode']").exists()).toBe(true);
+    expect((await mountAt("/blueprints")).find("[data-testid='sort-mode']").exists()).toBe(false);
+  });
+
+  // The menu says which order is in effect instead of cycling through three on each press.
+  it("names the order in effect, and picks one by name", async () => {
+    const wrapper = await mountAt("/terminals", { sortMode: "manual" });
+    const trigger = wrapper.get("[data-testid='sort-mode']");
+    expect(trigger.text()).toContain("Manual");
+    await trigger.trigger("click");
+    const options = wrapper.findAll("[data-testid='sort-mode-option']");
+    expect(options.map((o) => o.attributes("aria-checked"))).toEqual(["false", "true", "false"]);
+    await options[2].trigger("click");
+    expect(wrapper.emitted("set-sort-mode")).toEqual([["priority"]]);
+  });
+
+  it("offers the list / thumbnails switch only while a cell is enlarged", async () => {
+    expect((await mountAt("/terminals")).find("[data-testid='toolbar-view']").exists()).toBe(false);
+    const zoomed = await mountAt("/terminals", { zoomed: true, listMode: true });
+    const buttons = zoomed.findAll("[data-testid='toolbar-view'] button");
+    expect(buttons.map((b) => b.attributes("aria-pressed"))).toEqual(["true", "false"]);
+    await buttons[1].trigger("click");
+    expect(zoomed.emitted("set-list-mode")).toEqual([[false]]);
+  });
+
+  it("shows the pages only when there is more than one and nothing is enlarged", async () => {
+    expect((await mountAt("/terminals", { pages: 1 })).find("[data-testid='toolbar-pages']").exists()).toBe(false);
+    expect((await mountAt("/terminals", { pages: 3, zoomed: true })).find("[data-testid='toolbar-pages']").exists()).toBe(false);
+    const paged = await mountAt("/terminals", { pages: 3, page: 1 });
+    const pages = paged.findAll("[data-testid='toolbar-pages'] button");
+    expect(pages.map((b) => b.attributes("aria-pressed"))).toEqual(["false", "true", "false"]);
+    await pages[2].trigger("click");
+    expect(paged.emitted("switch-page")).toEqual([[2]]);
+  });
+});
+
+describe("AppToolbar — status strip", () => {
+  // In words: three coloured dots with bare numbers made everyone hover to learn which was which.
+  it("says what each count is", async () => {
+    const wrapper = await mountAt("/terminals", { statusCounts: { blocked: 1, done: 2, working: 3, idle: 0 } });
+    const text = wrapper.get("[data-testid='toolbar-status']").text();
+    expect(text).toContain("waiting 1");
+    expect(text).toContain("running 3");
+    expect(text).toContain("done 2");
+  });
+
+  // It is the one thing a person reading the wiki still needs to know about the terminals.
+  it("stays on screen away from the grid", async () => {
+    const wrapper = await mountAt("/wiki", { statusCounts: { blocked: 1, done: 0, working: 0, idle: 0 } });
+    expect(wrapper.get("[data-testid='toolbar-status']").text()).toContain("waiting 1");
+  });
+});
+
+describe("AppToolbar — collection chat badge", () => {
   const works = collectionChatKey({ mode: "detail", kind: "collection", slug: "works" }, null) ?? "";
   const chat = (id: string): SpawnedChatRequest => ({ id, agent: "claude", draft: false });
-  const badge = (wrapper: ReturnType<typeof mount>) => wrapper.findAll("nav[aria-label='Views'] span").filter((s) => /^\d+$|99\+/.test(s.text().trim()));
-  const door = (wrapper: ReturnType<typeof mount>) =>
-    wrapper.findAll("nav[aria-label='Views'] button").find((b) => (b.attributes("aria-label") ?? "").startsWith("Collections"));
 
   beforeEach(resetCollectionChats);
   afterEach(resetCollectionChats);
 
   it("wears nothing while no chat is running there", async () => {
     const wrapper = await mountAt("/terminals");
-    expect(badge(wrapper)).toHaveLength(0);
-    expect(door(wrapper)?.attributes("aria-label")).toBe("Collections"); // ...and the name is unchanged
+    expect(wrapper.find("[data-testid='workspace-chat-count']").exists()).toBe(false);
+    expect(wrapper.get("[data-testid='section-workspace']").attributes("aria-label")).toBe("Workspace");
   });
 
-  it("counts the chats filed under collections", async () => {
+  // On the section it belongs to, which is on screen from anywhere.
+  it("counts the chats filed under collections, and says so in the name", async () => {
     holdCollectionChat(works, chat("a"));
     holdCollectionChat(works, chat("b"));
     const wrapper = await mountAt("/terminals");
-    expect(badge(wrapper)[0].text()).toBe("2");
-  });
-
-  // The badge is aria-hidden, so the accessible name has to say it too — otherwise a screen reader
-  // is told less than the screen shows.
-  it("says it in the button's own name", async () => {
-    holdCollectionChat(works, chat("a"));
-    const wrapper = await mountAt("/terminals");
-    expect(door(wrapper)?.attributes("aria-label")).toBe("Collections — 1 chat open here");
+    expect(wrapper.get("[data-testid='workspace-chat-count']").text()).toBe("2");
+    expect(wrapper.get("[data-testid='section-workspace']").attributes("aria-label")).toBe("Workspace — 2 chats open here");
   });
 });
 
-// #1984: a few pinned collections get a permanent button here, so opening one is a single press
-// instead of Collections-then-the-row-inside-it.
-describe("AppToolbar pinned collections", () => {
+// #1984: a few pinned collections get a permanent button, so opening one is a single press.
+describe("AppToolbar — pinned collections", () => {
   const works: Shortcut = { kind: "collection", slug: "works", title: "Work log", icon: "task" };
   const news: Shortcut = { kind: "feed", slug: "news", title: "News", icon: "rss_feed" };
-  const pinGroup = (wrapper: ReturnType<typeof mount>) => wrapper.find("nav[aria-label='Views'] [role='group'][aria-label='Pinned collections and feeds']");
+  const pinGroup = (wrapper: Wrapper) => wrapper.find("[role='group'][aria-label='Pinned collections and feeds']");
 
   beforeEach(() => {
     pinned.current = [works, news];
     setToolbarPins([]);
   });
-
   afterEach(() => {
     pinned.current = [];
     setToolbarPins([]);
   });
 
-  // The empty case is the one that must not cost anything: an install that promoted nothing has to
-  // get the header it had, rule included.
   it("draws nothing at all while none is promoted", async () => {
-    const wrapper = await mountAt("/terminals");
-    expect(pinGroup(wrapper).exists()).toBe(false);
-    expect(labelsOf(wrapper)).not.toContain("Work log");
+    expect(pinGroup(await mountAt("/terminals")).exists()).toBe(false);
   });
 
   it("offers the promoted ones, in the configured order", async () => {
@@ -282,27 +240,10 @@ describe("AppToolbar pinned collections", () => {
     expect(group.findAll("button").map((b) => b.attributes("aria-label"))).toEqual(["News", "Work log"]);
   });
 
-  // Only the promoted ones: the whole point is that the row does not grow by every favourite.
-  it("leaves the un-promoted favourites off the toolbar", async () => {
-    setToolbarPins(["collection:works"]);
-    expect(labelsOf(await mountAt("/terminals"))).not.toContain("News");
-  });
-
-  // Not a grid control: it changes which view fills the screen, so it stays put when you are
-  // inside the content section rather than moving with the buttons that act on cells.
+  // A shortcut across sections, so it stays on the tier that never changes.
   it.each(["/terminals", "/collections", "/wiki"])("keeps them on %s", async (path) => {
     setToolbarPins(["collection:works"]);
-    expect(labelsOf(await mountAt(path))).toContain("Work log");
-  });
-
-  // Their own fenced group, on the view-switch side of the rule — pressing one leaves the view you
-  // are in, which is what everything left of the fence does.
-  it("fences them off without joining the view switch", async () => {
-    setToolbarPins(["collection:works"]);
-    const wrapper = await mountAt("/terminals");
-    expect(pinGroup(wrapper).classes()).toContain("border-r");
-    const switchGroup = wrapper.find("nav[aria-label='Views'] [role='group'][aria-label='Switch view']");
-    expect(switchGroup.findAll("button").map((b) => b.attributes("aria-label"))).toEqual(["Grid view", "Collections"]);
+    expect(pinGroup(await mountAt(path)).exists()).toBe(true);
   });
 
   it("opens the collection in one press", async () => {
@@ -315,17 +256,13 @@ describe("AppToolbar pinned collections", () => {
 
   it("lights the one you are looking at", async () => {
     setToolbarPins(["collection:works", "feed:news"]);
-    const wrapper = await mountAt("/collections/works");
-    const lit = pinGroup(wrapper)
+    const lit = pinGroup(await mountAt("/collections/works"))
       .findAll("button")
       .filter((b) => b.classes().includes("bg-accent-bg"))
       .map((b) => b.attributes("aria-label"));
     expect(lit).toEqual(["Work log"]);
   });
 
-  // The title and icon come from the pin, so a favourite that is gone — unpinned here or in
-  // MulmoClaude, which writes the same file — has nothing to draw and is skipped rather than
-  // rendered as a blank button.
   it("skips a promoted key whose pin is gone", async () => {
     setToolbarPins(["collection:works", "collection:deleted"]);
     const group = pinGroup(await mountAt("/terminals"));
@@ -337,9 +274,7 @@ describe("AppToolbar pinned collections", () => {
 describe("AppToolbar — command palette", () => {
   it("opens the command palette from its button", async () => {
     const wrapper = await mountAt("/terminals");
-    const button = wrapper.findAll("button").find((b) => (b.attributes("title") ?? "") === "Commands");
-    expect(button).toBeDefined();
-    await button?.trigger("click");
+    await wrapper.get("[data-testid='toolbar-commands']").trigger("click");
     await flushPromises();
     expect(paletteOpen.value).toBe(true);
     expect(document.querySelector('[data-testid="command-palette"]')).not.toBeNull();

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
-import { CELL_CHIP_BTN, CELL_CHIP_ICON } from "../../../src/components/cellChromeClasses";
+import { CELL_CHIP_BTN } from "../../../src/components/cellChromeClasses";
 import { SUNK_CELL } from "../../../src/components/cellParked";
 import { TOOL_GROUPS } from "../../../common/toolGroups";
 import { setHeaderStatusDefaults } from "../../../src/composables/headerStatusColors";
@@ -33,9 +33,10 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader", "launch", "customAgent", "agent"],
     emits: ["session", "cwd"],
-    // Render both of the header's slots so the cell's path menu (header-lead) and its icon
-    // buttons (header-actions) are present in the test DOM — but only when the header is
-    // shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
+    // Render both of the header's slots so the cell's path menu (header-lead) is present in the
+    // test DOM — but only when the header is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
+    // The cell no longer fills `header-actions` (its session actions moved into the ⋮ menu on row
+    // 1); the slot stays rendered so a test walking the DOM would see anything that crept back.
     template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-lead" /><slot v-if="!hideHeader" name="header-actions" /></div>',
     methods: {
       terminate() {},
@@ -92,9 +93,7 @@ function mountCell(
     openSessionIds?: string[];
     openCwds?: string[];
     expanded?: boolean;
-    collectionsAvailable?: boolean;
     zoomed?: boolean;
-    reorderable?: boolean;
     initialAgent?: "claude" | "codex" | "antigravity" | "grok";
     initialCustomAgent?: string | null;
     initialLaunchChoice?: { provider?: string | null; model?: string | null } | null;
@@ -109,9 +108,7 @@ function mountCell(
       ...(opts.initialLaunchChoice ? { initialLaunchChoice: opts.initialLaunchChoice } : {}),
       ...(opts.autoStart ? { autoStart: true } : {}),
       expanded: opts.expanded ?? false,
-      collectionsAvailable: opts.collectionsAvailable ?? false,
       zoomed: opts.zoomed ?? false,
-      reorderable: opts.reorderable ?? false,
       initialSessionId,
       initialCwd: opts.initialCwd ?? null,
       defaultCwd: opts.defaultCwd ?? "/home/me/my-project",
@@ -147,6 +144,46 @@ function chipForPath(w: ReturnType<typeof mountCell>, path: string) {
 // points the field at defaultCwd, which IS the workspace.
 const WORKSPACE = "/home/me/ws";
 const mountProjectCell = (dir: string) => mountCell(null, { initialCwd: dir, defaultCwd: WORKSPACE });
+
+// The cell's ⋮ menu. Its panel is teleported to <body> — a cell is `overflow: hidden` and a small
+// tile would clip a menu left inside it — so the items are looked up there, never in the wrapper.
+const openCellMenu = (w: ReturnType<typeof mount>) => w.find('[data-testid="cell-menu"]').trigger("click");
+const menuPanel = () => document.body.querySelector<HTMLElement>('[data-testid="cell-menu-panel"]');
+/** The open menu's items, by key, in the order they are offered. */
+const menuKeys = () => [...(menuPanel()?.querySelectorAll('[role="menuitem"]') ?? [])].map((b) => b.getAttribute("data-testid")?.replace(/^cell-menu-/, ""));
+const menuItem = (key: string) => document.body.querySelector<HTMLElement>(`[data-testid="cell-menu-${key}"]`);
+/** Open the ⋮ menu and press one of its items, as a user would. Throws on a missing item, so a
+ *  stale key fails as a selector rather than as a puzzling assertion further down. */
+async function pickMenuItem(w: ReturnType<typeof mount>, key: string) {
+  await openCellMenu(w);
+  const item = menuItem(key);
+  if (!item) throw new Error(`no ${key} item in the cell menu`);
+  item.click();
+  await nextTick();
+}
+
+// The drag handle heads a TILE's header — the one pointer route to a reorder. The enlarged views
+// reorder from the roster, so a zoomed cell carries none.
+describe("TerminalCell drag handle", () => {
+  it("heads a tile's header and reports the pickup to the grid", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111");
+    await flushPromises();
+    const handle = w.get('[data-testid="cell-drag"]');
+    expect(handle.attributes("draggable")).toBe("true");
+    await handle.trigger("dragstart");
+    await handle.trigger("dragend");
+    expect(w.emitted("drag-handle")).toHaveLength(1);
+    expect(w.emitted("drag-end")).toHaveLength(1);
+    w.unmount();
+  });
+
+  it("is absent while the grid is zoomed", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { zoomed: true });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-drag"]').exists()).toBe(false);
+    w.unmount();
+  });
+});
 
 describe("TerminalCell", () => {
   // #965: the whole cell — header included — sits in one wrapper, so the focus zoom can be
@@ -1143,19 +1180,11 @@ describe("TerminalCell", () => {
     mockFetchWithGithub("https://github.com/owner/repo");
     const w = mountCell("33333333-3333-3333-3333-333333333333", { initialCwd: "/home/me/repo" });
     await flushPromises();
-    expect(await openPathMenu(w)).toEqual([
-      "Reveal in the file manager",
-      "Browse files in the app",
-      "New terminal here",
-      "Repository",
-      "Issues",
-      "Pull requests",
-      "Actions",
-    ]);
+    expect(await openPathMenu(w)).toEqual(["Reveal in the file manager", "New terminal here", "Repository", "Issues", "Pull requests", "Actions"]);
   });
 
   it("keeps the GitHub destinations out of the menu for a non-GitHub repo (null) and on lookup failure", async () => {
-    const local = ["Reveal in the file manager", "Browse files in the app", "New terminal here"];
+    const local = ["Reveal in the file manager", "New terminal here"];
     mockFetchWithGithub(null);
     const a = mountCell("33333333-3333-3333-3333-333333333333", { initialCwd: "/home/me/repo" });
     await flushPromises();
@@ -1192,22 +1221,6 @@ describe("TerminalCell", () => {
     openSpy.mockRestore();
   });
 
-  // #1910: it used to push the /files route, which covers the terminal it was opened from. The
-  // pane belongs to the grid — only that side knows which cell is enlarged and where to put it —
-  // so the menu asks rather than navigates.
-  it("asks the grid for the files pane instead of navigating to the full-screen view", async () => {
-    mockFetchWithGithub(null);
-    const w = mountCell("33333333-3333-3333-3333-333333333333", { initialCwd: "/home/me/repo" });
-    await flushPromises();
-    await w.find(".cell-dir").trigger("click");
-    await w
-      .findAll('[data-testid="cell-path-item"]')
-      .find((b) => itemLabel(b.text()) === "Browse files in the app")
-      ?.trigger("click");
-
-    expect(w.emitted("open-files")).toHaveLength(1);
-  });
-
   it("toggles the path menu and closes it on Escape", async () => {
     mockFetchWithGithub("https://github.com/owner/repo");
     const w = mountCell("33333333-3333-3333-3333-333333333333", { initialCwd: "/home/me/repo" });
@@ -1226,7 +1239,9 @@ describe("TerminalCell", () => {
   // the built stylesheet), and the CELL is what clips it: the cell root is `overflow-hidden`, so the
   // last row stops being hittable below a cell height of 244px where six rows survived to 217px —
   // and a 3x3 tile is about 245px on an ~800px window. Hence the cap, measured against the
-  // intersection of the cell's box and the window's rather than against the window alone.
+  // intersection of the cell's box and the window's rather than against the window alone. The menu
+  // is six rows again since "Browse files in the app" left it for the side panel, but a tile short
+  // enough still clips six, and the cap is what keeps the last of them reachable.
   // Row 2 of the cell header, as a window coordinate: the trigger's bottom edge.
   const TRIGGER_BOTTOM_PX = 52;
   const openPathMenuIn = async (initialCell: DOMRect) => {
@@ -2156,58 +2171,114 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="ccx-remove"]').text()).toContain("Discard");
   });
 
-  it("keeps the CELL's own controls on row 1 (cell-header); the SESSION's actions live on row 2", async () => {
-    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", reorderable: true });
+  it("keeps every control on row 1 (cell-header), and hands row 2 nothing", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
     await flushPromises();
-    // Row 1 (cell-header): dir + prompt, and the controls that act on the cell itself — reorder,
-    // expand, close. They have to be here rather than on row 2: row 2 is the session's header and
-    // is hidden entirely on a filmstrip thumbnail.
+    // Row 1 (cell-header): dir + prompt, and the controls — expand, close, and the ⋮ menu that
+    // holds what row 2 used to (talk, copy, the timeline). Row 2 is the terminal's own header and is
+    // hidden entirely on a filmstrip thumbnail, so a control left there is one a thumbnail loses.
     const header = w.find(".cell-header");
     expect(header.find(".cell-close").exists()).toBe(true);
     expect(header.find('[aria-label="Expand terminal"]').exists()).toBe(true);
-    expect(header.find('[aria-label="Move terminal left"]').exists()).toBe(true);
-    expect(header.find('[aria-label="Move terminal right"]').exists()).toBe(true);
-    // The timeline / GitHub icons act on the running session, so they stay on row 2 (the
-    // TerminalView slot).
-    expect(header.find('[aria-label="Show activity timeline"]').exists()).toBe(false);
-    expect(w.find('[aria-label="Show activity timeline"]').exists()).toBe(true);
+    expect(header.find('[data-testid="cell-menu"]').exists()).toBe(true);
+    // Row 2's slot is not filled at all, so its old buttons are gone rather than duplicated there.
+    expect(w.findComponent({ name: "TerminalView" }).vm.$slots["header-actions"]).toBeUndefined();
+    expect(w.find('[data-testid="cell-ask"]').exists()).toBe(false);
+    expect(w.find('[aria-label="Show activity timeline"]').exists()).toBe(false);
   });
 
-  it("puts reorder with the other cell controls, before expand", async () => {
-    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", reorderable: true });
+  // The order the command and launcher cells already use (CellShell): whatever a cell adds sits in
+  // CellChromeButtons' slot, ahead of expand and close. Stated as the whole list, so a control that
+  // comes back as an icon of its own — the reorder arrows, park, a note pencil — fails here.
+  it("puts the ⋮ menu with the other cell controls, before expand", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
     await flushPromises();
     const labels = w.findAll(".cell-header > .cell-actions button").map((b) => b.attributes("aria-label"));
-    expect(labels).toEqual([
-      "Move terminal left",
-      "Move terminal right",
-      "Expand terminal",
-      "Start a terminal in this directory",
-      "Set aside (stays open, keeps its history)",
-      "Close terminal",
-    ]);
+    expect(labels).toEqual(["More actions", "Expand terminal", "Close terminal"]);
   });
 
-  it("drops reorder when the grid is not reorderable", async () => {
+  // What the ⋮ offers follows what there is to act on. The cell's own item is there from the
+  // start; the session's arrive with a session; the timeline stays claude's alone. Each was the
+  // `v-if` of a separate icon before the menu gathered them, which is what this pins.
+  it("offers the session's items only with a session, and the timeline only for claude", async () => {
+    const offered = async (w: ReturnType<typeof mount>) => {
+      await openCellMenu(w);
+      const keys = menuKeys();
+      await openCellMenu(w); // the trigger toggles, so the next cell's panel is the only one open
+      return keys;
+    };
+    // Just launched: the header is up, but the terminal has not reported a session id yet, so there
+    // is nothing to hang a note on or to talk from.
+    const starting = mountCell(null);
+    await flushPromises();
+    await starting.find('[data-testid="cell-dir-input"]').setValue("/home/me/proj");
+    await starting.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    expect(await offered(starting)).toEqual(["park"]);
+
+    const claude = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    await flushPromises();
+    expect(await offered(claude)).toEqual(["note", "park", "talk", "copy", "timeline"]);
+
+    const codex = mountCell("22222222-2222-2222-2222-222222222222", { initialCwd: "/home/me/proj", initialAgent: "codex" });
+    await flushPromises();
+    expect(await offered(codex)).toEqual(["note", "park", "talk", "copy"]);
+  });
+
+  // The pencil used to say whether a note existed through its ink alone (accent vs dim), which a
+  // reader had to know to look for. The menu item says it in words.
+  it("names the note item by whether the session already has one", async () => {
+    const noteLabel = async (memo: string | null) => {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ working: false, waiting: false, lastPrompt: null, memo }),
+      })) as unknown as typeof fetch;
+      const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+      await flushPromises();
+      await openCellMenu(w);
+      // The label's own line, not the item's whole text: the icon ligature is text too.
+      const label = menuItem("note")?.querySelector(".material-symbols-outlined + span > span")?.textContent;
+      await openCellMenu(w);
+      return label;
+    };
+    expect(await noteLabel(null)).toBe("Write a note");
+    expect(await noteLabel("ship the fix")).toBe("Edit the note");
+  });
+
+  // The note item opens the same inline field the pencil did — in the info track, in place of the
+  // prompt — so the rest of the note's behaviour (cellMemoIme.spec) is unchanged by where it starts.
+  it("opens the inline note field from the menu, in place of the prompt", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
     await flushPromises();
-    expect(w.find('[aria-label="Move terminal left"]').exists()).toBe(false);
+    await pickMenuItem(w, "note");
+    expect(menuPanel()).toBeNull(); // the menu closed itself before running the item
+    expect(w.find('[data-testid="cell-header-main"] [data-testid="cell-memo-input"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-prompt"]').exists()).toBe(false);
   });
 
-  // The note pencil, the unread-canvas count and the diff badge are one family: pressable chips
-  // that sit INSIDE the info track. They must stay chip-sized rather than CELL_BTN-sized, or the
-  // header's height would depend on whether a cell happens to have a note. The three drifted apart
-  // when each wrote its own class string, which read as the pencil being styled by mistake.
+  // The activity timeline used to be row 2's own button; it is the menu's last item now.
+  it("opens the activity timeline from the menu", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    await flushPromises();
+    const timeline = () => w.findComponent({ name: "TimelineOverlay" });
+    expect(timeline().props("open")).toBe(false);
+    await pickMenuItem(w, "timeline");
+    expect(timeline().props("open")).toBe(true);
+  });
+
+  // The unread-canvas count and the diff badge are one family: pressable chips that sit INSIDE the
+  // info track. They must stay chip-sized rather than CELL_BTN-sized, or the header's height would
+  // depend on whether a cell happens to have something to press there. They drifted apart when each
+  // wrote its own class string. (The note pencil was the third member until the note moved into
+  // the ⋮ menu.)
   it("styles the info track's pressable chips as one family", async () => {
-    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    mockFetchWithDiff({ isWorktree: true, base: "main", ahead: 1, dirty: 0, files: [], patch: "", truncated: false });
+    const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
     await flushPromises();
-    const pencil = w.find('[data-testid="cell-memo-edit"]');
-    expect(pencil.exists()).toBe(true);
-    for (const cls of CELL_CHIP_BTN.split(" ")) expect(pencil.classes()).toContain(cls);
+    const badge = w.find('[data-testid="cell-wt-badge"]');
+    expect(badge.exists()).toBe(true);
+    for (const cls of CELL_CHIP_BTN.split(" ")) expect(badge.classes()).toContain(cls);
     // Chip-sized, not CELL_BTN-sized: the fixed box is what would change the header's height.
-    expect(pencil.classes()).not.toContain("h-[26px]");
-    // Its ink is the one thing it does NOT share — the pencil says whether a note exists.
-    expect(pencil.classes()).toContain("text-dim");
-    expect(pencil.find("span").classes().join(" ")).toBe(CELL_CHIP_ICON);
+    expect(badge.classes()).not.toContain("h-[26px]");
   });
 
   it("pins expand + close outside the info track so crowded header info can't push them off", async () => {
@@ -2227,23 +2298,26 @@ describe("TerminalCell", () => {
   // emit -> the cell's chromeEvents object -> the cell's own emit -> the grid, which opens the
   // pane. It was broken at the third step from #1573 until the button was first tried by hand:
   // `chromeEvents` had no `toggle-collections` key, so the emit was dropped inside the cell and
-  // nothing reached the grid. See cellChromeForwarding.spec for why the list is derived now.
-  it("forwards the collections toggle out of an enlarged cell, so the grid can open the pane", async () => {
-    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", expanded: true, collectionsAvailable: true });
-    await flushPromises();
-    await w.find(`[aria-label="Show this folder's collections"]`).trigger("click");
-    expect(w.emitted("toggle-collections")).toHaveLength(1);
-  });
-
-  // A directory that never registered the `data` MCP group has no collection tools, so the pane
-  // would be a door onto a room the agent beside it cannot enter. Hidden, not disabled — there is
-  // nothing for a disabled button to explain.
-  it("offers no collections button where the directory has no collection tools", async () => {
+  // nothing reached the grid. One Panel button stands for every pane now (the grid's tabs choose
+  // which), so it is the link left to pin. See cellChromeForwarding.spec for the list itself.
+  it("forwards the Panel toggle out of an enlarged cell, so the grid can open the pane", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", expanded: true });
     await flushPromises();
-    expect(w.find(`[aria-label="Show this folder's collections"]`).exists()).toBe(false);
-    // The neighbouring buttons are untouched — this hides ONE control, not the header.
-    expect(w.find('[aria-label="Show tools"]').exists()).toBe(true);
+    await w.find('[data-testid="cell-panel-btn"]').trigger("click");
+    expect(w.emitted("toggle-panel")).toHaveLength(1);
+  });
+
+  // The pane splits the ENLARGED cell's room, which a tile does not have, so the button is there
+  // only once the cell is enlarged. Whether a given pane is worth offering — the Collections one
+  // in a directory with no collection tools — is now the grid's tabs' decision, not this header's.
+  it("offers the Panel button only on the enlarged cell", async () => {
+    const tile = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    await flushPromises();
+    expect(tile.find('[data-testid="cell-panel-btn"]').exists()).toBe(false);
+
+    const enlarged = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", expanded: true });
+    await flushPromises();
+    expect(enlarged.find('[data-testid="cell-panel-btn"]').exists()).toBe(true);
   });
 
   it("shows the restore label + icon when the cell is expanded", async () => {
@@ -3067,7 +3141,7 @@ describe("TerminalCell launch target — the OS default shell (#1114)", () => {
   // browser — which is the common case of a grid with one cell in it.
   it("renders no ask list at all when there is no other terminal to read", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111");
-    await w.find('[data-testid="cell-ask"]').trigger("click");
+    await pickMenuItem(w, "talk");
     expect(w.find('[data-testid="cell-ask-menu"]').exists()).toBe(true);
     expect(w.find('[data-testid="cell-ask-list"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-ask-menu"]').text()).toContain("No other terminal to read");
@@ -3076,29 +3150,37 @@ describe("TerminalCell launch target — the OS default shell (#1114)", () => {
   // #2004: one glyph meant four things, and TWO of them were in this header — the pane of prompts
   // YOU sent, and the menu for talking to another terminal. Nothing said which was which.
   //
-  // It has to be asserted HERE. The header is assembled from several components — the prompts
-  // button comes from CellChromeButtons, the talk menu from this file's own `#header-actions`,
-  // the copy button from CopyCodeBlock — so a spec mounting any one of them sees one side of the
-  // collision and passes. That is what the first version of this test did.
+  // It has to be asserted HERE. The header is assembled from several components — the Panel button
+  // from CellChromeButtons, the ⋮ trigger and its items from CellMenu (fed by this file's
+  // `menuSections`) — so a spec mounting any one of them sees one side of a collision and passes.
+  // That is what the first version of this test did. The menu's items count as the header's: they
+  // were header icons until the redesign, and they sit one click under it.
   //
   // Stated as "every glyph is unique" rather than "forum appears once", because the failure was
-  // never about `forum`: it was two controls reaching for the same picture. Measured today: 14
-  // buttons, 14 distinct glyphs.
-  it("gives every button in an enlarged cell's header its own glyph", async () => {
+  // never about `forum`: it was two controls reaching for the same picture. One glyph per control
+  // — its first — so the chevron that marks an item opening something further is not read as that
+  // item's picture. Measured today: 10 controls (4 on the row, 1 path trigger, 5 in the menu), 10
+  // distinct glyphs.
+  it("gives every control in an enlarged cell's header and its menu its own glyph", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { expanded: true });
-    await w.vm.$nextTick();
-    const glyphs = w.findAll("button span.material-symbols-outlined").map((s) => s.text());
+    await flushPromises();
+    await openCellMenu(w);
+    const glyphOf = (b: Element) => b.querySelector(".material-symbols-outlined")?.textContent?.trim();
+    const buttons = [...w.element.querySelectorAll("button"), ...(menuPanel()?.querySelectorAll("button") ?? [])];
+    const glyphs = buttons.map(glyphOf).filter((g): g is string => !!g);
     const duplicated = glyphs.filter((g, i) => glyphs.indexOf(g) !== i);
     expect(duplicated).toEqual([]);
     expect(glyphs.length).toBeGreaterThan(5); // the assertion above is vacuous on an empty header
   });
 
-  // The two the issue was actually about, pinned by name so a failure says which button moved.
+  // The two the issue was actually about, pinned by name so a failure says which control moved. The
+  // prompts pane has no button of its own any more — it is a tab behind the Panel button — so the
+  // Panel is its door in this header, and it must not wear the conversation glyph either.
   it("keeps the prompts pane off the conversation glyph", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { expanded: true });
-    await w.vm.$nextTick();
-    const glyph = (id: string) => w.find(`[data-testid="${id}"] span.material-symbols-outlined`).text();
-    expect(glyph("cell-prompts-btn")).toBe("outbox");
-    expect(glyph("cell-ask")).toBe("forum");
+    await flushPromises();
+    expect(w.find('[data-testid="cell-panel-btn"] span.material-symbols-outlined').text()).toBe("view_sidebar");
+    await openCellMenu(w);
+    expect(menuItem("talk")?.querySelector(".material-symbols-outlined")?.textContent).toBe("forum");
   });
 });

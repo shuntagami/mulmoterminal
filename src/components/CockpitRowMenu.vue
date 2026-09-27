@@ -1,7 +1,11 @@
 <script setup lang="ts">
-// The ⋮ action menu on a cockpit roster row (#707, #2299). Top: mark unread / read. Middle: move
-// up / down, in manual sort only. Bottom: set aside, close. Unread and close sit at opposite ends
-// on purpose — a slip onto the neighbouring item must not end a session.
+// The ⋮ action menu on a cockpit roster row (#707, #2299). Top: mark unread / read. Bottom: set
+// aside, close. Unread and close sit at opposite ends on purpose — a slip onto the neighbouring item
+// must not end a session.
+//
+// No move up / down: reordering is one gesture, the row's drag handle, with the command palette's
+// "Move this terminal earlier / later" as its keyboard route. A step-wise move here was a second
+// pointer route to the same thing.
 //
 // It opens from the ⋮ or, through `at`, at the pointer of a right-click on the row. The dropdown is
 // teleported to <body> and fixed-positioned: the roster row is overflow-hidden inside an
@@ -13,9 +17,6 @@ import { useI18n } from "vue-i18n";
 import { fitMenu, type AttentionAction, type MenuPoint } from "./rowMenu";
 
 const props = defineProps<{
-  canUp: boolean;
-  canDown: boolean;
-  reorderable: boolean;
   attention: AttentionAction | null;
   parkable: boolean;
   parked: boolean;
@@ -23,7 +24,6 @@ const props = defineProps<{
   at?: MenuPoint | null;
 }>();
 const emit = defineEmits<{
-  move: [dir: -1 | 1];
   attention: [waiting: boolean];
   park: [on: boolean];
   close: [];
@@ -143,15 +143,6 @@ onBeforeUnmount(close);
           </button>
           <button v-else type="button" role="menuitem" data-testid="row-mark-read" :class="ITEM_CLASS" @click="pick(() => emit('attention', false))">
             <span :class="ICON_CLASS" aria-hidden="true">mark_chat_read</span> {{ t("rowMenu.markRead") }}
-          </button>
-          <div :class="DIVIDER_CLASS" role="separator" />
-        </template>
-        <template v-if="reorderable">
-          <button type="button" role="menuitem" data-testid="reorder-up" :class="ITEM_CLASS" :disabled="!canUp" @click="pick(() => emit('move', -1))">
-            <span :class="ICON_CLASS" aria-hidden="true">arrow_upward</span> {{ t("rowMenu.moveUp") }}
-          </button>
-          <button type="button" role="menuitem" data-testid="reorder-down" :class="ITEM_CLASS" :disabled="!canDown" @click="pick(() => emit('move', 1))">
-            <span :class="ICON_CLASS" aria-hidden="true">arrow_downward</span> {{ t("rowMenu.moveDown") }}
           </button>
           <div :class="DIVIDER_CLASS" role="separator" />
         </template>

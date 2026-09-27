@@ -42,7 +42,7 @@ watch([isOpen, cwd], async ([open, curCwd], prev) => {
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-x-0 top-10 bottom-0 z-50 bg-deep flex flex-col" role="region" aria-label="Files">
+  <div v-if="isOpen" class="fixed inset-x-0 top-[79px] bottom-0 z-50 bg-deep flex flex-col" role="region" aria-label="Files">
     <FilesPane ref="pane" :cwd="paneCwd" :requested-path="requestedPath" @close="close">
       <template #title>
         <span class="text-[14px] font-[650] text-fg">Files</span>

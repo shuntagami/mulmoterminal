@@ -6,12 +6,12 @@ import NotificationBell from "./NotificationBell.vue";
 import RateLimitGauge from "./RateLimitGauge.vue";
 import MachineLoadGauge from "./MachineLoadGauge.vue";
 import { showLoadAverage } from "../composables/showLoadAverage";
-import RemoteHostControl from "./RemoteHostControl.vue";
+import RemoteHostStatus from "./RemoteHostStatus.vue";
 import LauncherButton from "./LauncherButton.vue";
 import CommandPalette from "./CommandPalette.vue";
+import SortModeMenu from "./SortModeMenu.vue";
 import { openCommandPalette, paletteOpen } from "../composables/commandPalette";
 import { useI18n } from "vue-i18n";
-import { CONTENT_ROUTES } from "../composables/overlayOrigin";
 import { useCollectionBrowse, browseGotoIndex, browseGotoDetail } from "../composables/useCollectionBrowse";
 import { useShortcuts } from "../composables/useShortcuts";
 import { toolbarPinKeys } from "../composables/toolbarPins";
@@ -19,62 +19,118 @@ import { collectionChatCount } from "../composables/collectionChatSessions";
 import { resolveToolbarPins, toolbarPinKey } from "../../common/toolbarPins";
 import type { Shortcut } from "../../common/shortcuts";
 import { filesGotoIndex } from "../composables/useFilesView";
-import { useAccountingView, accountingViewOpen } from "../composables/useAccountingView";
-import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWikiBrowse";
-import { useGithubView, githubGotoIndex } from "../composables/useGithubView";
-import { useRoomsView, roomsViewOpen } from "../composables/useRoomsView";
-import { useBlueprintsView, blueprintsViewOpen } from "../composables/useBlueprintsView";
-import { useSoundEnabled } from "../composables/useSoundEnabled";
-import { audioBlocked } from "../composables/audioUnlockState";
-import { soundButtonState } from "./soundButtonState";
+import { accountingViewOpen } from "../composables/useAccountingView";
+import { wikiGotoIndex, wikiGotoTag } from "../composables/useWikiBrowse";
+import { githubGotoIndex } from "../composables/useGithubView";
+import { roomsViewOpen } from "../composables/useRoomsView";
+import { blueprintsViewOpen } from "../composables/useBlueprintsView";
+import { useAppConfig } from "../composables/useAppConfig";
+import { worklogEnabled } from "../composables/worklog";
+import { listRooms, roomsExist } from "../composables/useRooms";
 import { useUpdateStatus } from "../composables/useUpdateStatus";
 import { useGithubStar } from "../composables/useGithubStar";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
-import { parseTagQuery } from "./wikiTagFilter";
 import type { SortMode, StatusCounts } from "./gridTabs";
 import { gridStatusSummary } from "./gridTabs";
-import { sortModeButton } from "./sortModeButton";
+import { WORKLOG_TAG, screenOf, screensOf, sectionOf, type ToolbarScreen, type ToolbarSection } from "./toolbarSections";
+import type { SettingsTabId } from "./settings/settingsTabs";
 
-// The standard header, shared by the single (App.vue) and grid (GridView.vue) views so
-// both show one identical toolbar. Every launcher button now just pushes a route — the
-// surface (single shell vs grid, which overlay) is derived from the URL — so navigating
-// to a single-view surface (collections / accounting) inherently leaves the grid. The
-// active states re-derive from route.name (via the route-backed browse/accounting
-// stores). Grid-only state (`addTerminalActive`, `sortMode`) is still passed in, and
-// the grid-only actions (add-terminal / toggle-sort) and settings stay emits.
+// The standard header, in two tiers.
+//
+//   top    — the whole app: which SECTION you are in, what needs you (the status strip), and the
+//            app's own tools (commands, notifications, settings). Nothing here depends on where you
+//            are, which is why it never changes.
+//   bottom — the section you are in: its screens, and what acts on the one showing. The terminal
+//            section's creation button leads it; the grid's ordering and view controls end it.
+//
+// One flat row of equal icons used to hold all of this, and a user could not tell a view switch
+// from an action from a status read-out. Every screen here is a route, so what is lit is derived
+// from the URL, never held as state.
 const props = defineProps<{
   addTerminalActive?: boolean;
   sortMode?: SortMode;
   statusCounts?: StatusCounts;
-  // Grid zoom state, so the header can host the roster / strip toggle (shown only while zoomed).
-  showViewToggle?: boolean;
+  // Grid zoom state: the list / thumbnails switch only means something while a cell is enlarged.
+  zoomed?: boolean;
   listMode?: boolean;
+  // The tiled grid's pages. Shown only when there is more than one and nothing is enlarged —
+  // the enlarged views list every cell, not a page of them.
+  pages?: number;
+  page?: number;
 }>();
-const emit = defineEmits<{ (e: "add-terminal" | "toggle-sort" | "toggle-view" | "settings"): void }>();
+const emit = defineEmits<{
+  (e: "add-terminal"): void;
+  (e: "set-sort-mode", mode: SortMode): void;
+  (e: "set-list-mode", on: boolean): void;
+  (e: "switch-page", page: number): void;
+  (e: "settings", tab?: SettingsTabId): void;
+}>();
 const { t } = useI18n();
-const sortButton = computed(() => sortModeButton(props.sortMode ?? "manual"));
 
 const route = useRoute();
-// Grid-wide, at-a-glance tally: how many cells are blocked (need input) / done
-// (review) / working, across every page. Shown only when something is running.
+const screen = computed<ToolbarScreen>(() => screenOf(String(route.name), route.query.tag));
+const section = computed<ToolbarSection>(() => sectionOf(screen.value));
+const onGrid = computed(() => screen.value === "grid");
+
+// A tab only for what is set up: PRs with repositories to list, Rooms once a round table has
+// written one, the worklog while it is switched on.
+const { prRepos } = useAppConfig();
+void listRooms();
+const screens = computed(() =>
+  screensOf(section.value, { prRepos: prRepos.value.length > 0, rooms: roomsExist.value, worklog: worklogEnabled.value }, screen.value),
+);
+const screenLabel = (s: ToolbarScreen): string => (s === "blueprints" ? t("blueprints.title") : t(`toolbar.screens.${s}`));
+
+function gotoScreen(s: ToolbarScreen): void {
+  if (s === "grid") void router.push("/terminals");
+  else if (s === "github") githubGotoIndex();
+  else if (s === "rooms") roomsViewOpen();
+  else if (s === "worklog") wikiGotoTag(WORKLOG_TAG);
+  else if (s === "blueprints") blueprintsViewOpen();
+  else if (s === "collections") browseGotoIndex("collection");
+  else if (s === "feeds") browseGotoIndex("feed");
+  else if (s === "wiki") wikiGotoIndex();
+  else if (s === "accounting") accountingViewOpen();
+  // No cwd: from here the Files view opens on the workspace, where a terminal's own Files opens on
+  // that terminal's directory. The route carries the difference (`?cwd=`).
+  else filesGotoIndex(null);
+}
+function gotoSection(s: ToolbarSection): void {
+  gotoScreen(s === "terminal" ? "grid" : "collections");
+}
+
+// A new terminal always lands in the grid, so from another screen of the section the grid comes
+// back first. That is what lets this button keep one place while the tabs beside it change.
+async function newTerminal(): Promise<void> {
+  if (!onGrid.value) await router.push("/terminals");
+  emit("add-terminal");
+}
+
+// Grid-wide, at-a-glance tally: how many cells need input / are done / are working, across every
+// page — in words, because three coloured dots with bare numbers made everyone hover to learn which
+// was which. Shown from every screen: it is the one thing a person reading the wiki still needs to
+// know about the terminals.
 const summary = computed(() => gridStatusSummary(props.statusCounts));
-const summaryTitle = computed(() => summary.value.title);
-const hasSummary = computed(() => summary.value.show);
+
+// The promoted favourites (#1984): the user's own shortcuts ACROSS sections, so they sit on the top
+// tier beside the section switch rather than inside one section. The label and the icon come from
+// the PIN, never from the config that promoted it.
 const { view: browseView } = useCollectionBrowse();
-// The few favourites the user promoted out of the Collections overlay (#1984). Opening one used to
-// take two presses — Collections, then the pinned row inside it — and the pins were invisible until
-// the first of them. The label and the icon come from the PIN, never from the config that promoted
-// it, so renaming a collection cannot leave a button here saying the old name.
 const { shortcuts } = useShortcuts();
 const pins = computed(() => resolveToolbarPins(shortcuts.value, toolbarPinKeys.value));
 const pinActive = (pin: Shortcut): boolean => browseView.value.mode === "detail" && browseView.value.kind === pin.kind && browseView.value.slug === pin.slug;
-const { isOpen: accountingOpen } = useAccountingView();
-const { isOpen: wikiOpen } = useWikiBrowse();
-const { isOpen: prsOpen } = useGithubView();
-const { isOpen: roomsOpen } = useRoomsView();
-const { isOpen: blueprintsOpen } = useBlueprintsView();
-const { enabled: soundEnabled, toggle: toggleSound } = useSoundEnabled();
-const soundButton = computed(() => soundButtonState(soundEnabled.value, audioBlocked.value));
+
+// Chats belonging to a collection (#2001), counted on the section they belong to. It is the only
+// witness for a chat the grid could not take (#2020), which is why it rides the always-visible tier.
+const chatCount = computed(() => collectionChatCount());
+const workspaceTitle = computed(() => {
+  const name = t("toolbar.sections.workspace");
+  if (!chatCount.value) return name;
+  const chats = chatCount.value === 1 ? "1 chat" : `${chatCount.value} chats`;
+  // "open here", not "running": a chat started as a DRAFT has its prompt typed and not submitted.
+  return `${name} — ${chats} open here`;
+});
+
 const { badge: updateBadge } = useUpdateStatus();
 const { visible: starVisible, confirming: starConfirming, title: starTitle, activate: activateStar } = useGithubStar();
 
@@ -101,120 +157,57 @@ async function copyUpdateCommand(): Promise<void> {
   }
 }
 
-// TWO different questions, and answering both with one flag is what broke #892.
-//   - which buttons the header OFFERS: the view underneath, so an overlay opened from the
-//     grid keeps the grid's buttons instead of hiding the one just clicked
-//   - which button is HIGHLIGHTED, and whether the grid is the screen: the route itself,
-//     because an open overlay is not the grid even when the grid is underneath
-const onGridRoute = computed(() => route.name === "terminals");
-// Lit on the DETAIL pages too, not just the index. A door that goes dark the moment you open one
-// of the things behind it leaves the toolbar with nothing selected while you are plainly still
-// inside that section — and since the grid's own controls hide under an overlay, nothing else
-// would be lit either (Codex, PR #1201). The index/detail distinction belongs to the view, not to
-// which section you are in.
-const collectionsActive = computed(() => browseView.value.mode !== "closed" && browseView.value.kind === "collection");
-// Chats belonging to a collection (#2001). They ARE grid cells — the grid's own tally counts them
-// with everything else — so what this adds is which of them are answerable behind this door, and
-// that any exist at all while you are looking at the grid. The count is on the button rather than
-// in its own control because it is not a thing to press: it is a property of what is behind it.
-// The accessible name carries it too: a badge is `aria-hidden`, and a screen reader that only hears
-// "Collections" is told less than the screen says.
-const chatCount = computed(() => collectionChatCount());
-const collectionsTitle = computed(() => {
-  if (!chatCount.value) return "Collections";
-  const chats = chatCount.value === 1 ? "1 chat" : `${chatCount.value} chats`;
-  // "open here", not "running": a chat started as a DRAFT has its prompt typed and not submitted,
-  // so calling it running says something the screen cannot back up (Codex, PR #2002).
-  return `Collections — ${chats} open here`;
-});
-const feedsActive = computed(() => browseView.value.mode !== "closed" && browseView.value.kind === "feed");
-const filesActive = computed(() => route.name === "files");
-// Inside the content section — which is what reveals the siblings below. Answered from the ROUTE
-// rather than from "is some overlay open", so moving between them (collections → wiki → files)
-// never blinks the row that got you there.
-const inContent = computed(() => CONTENT_ROUTES.has(String(route.name)));
-const accountingActive = computed(() => accountingOpen.value);
-const wikiActive = computed(() => wikiOpen.value);
-const prsActive = computed(() => prsOpen.value);
-const roomsActive = computed(() => roomsOpen.value);
-function showGrid(): void {
-  void router.push("/terminals");
-}
-function showCollections(): void {
-  browseGotoIndex("collection");
-}
-function showAccounting(): void {
-  accountingViewOpen();
-}
-function showFeeds(): void {
-  browseGotoIndex("feed");
-}
-// No cwd: from here the Files view opens on the workspace, where a terminal header's Files button
-// opens on that terminal's own directory. The route carries the difference (`?cwd=`).
-function showFiles(): void {
-  filesGotoIndex(null);
-}
-function showWiki(): void {
-  wikiGotoIndex();
-}
-// Grid-only shortcut to the dev worklog: the wiki filtered to the #worklog tag (the weekly
-// dev-log pages the scheduled worklog task writes).
-const WORKLOG_TAG = "worklog";
-const worklogActive = computed(() => wikiOpen.value && parseTagQuery(route.query.tag).has(WORKLOG_TAG));
-function showWorklog(): void {
-  wikiGotoTag(WORKLOG_TAG);
-}
-function showPrs(): void {
-  githubGotoIndex();
-}
-// Beside PRs rather than behind the Collections door, for the same reason PRs is: a room is the
-// record of what the terminals in the grid said to each other, not workspace content.
-function showRooms(): void {
-  roomsViewOpen();
-}
+// Top-tier section tabs: filled when current. Bottom-tier screen tabs: underlined. The two tiers
+// look different on purpose — they are different kinds of choice.
+const sectionClass = (s: ToolbarSection): string =>
+  section.value === s ? "bg-selected text-fg font-semibold" : "bg-transparent text-muted font-medium hover:bg-hover hover:text-fg";
+const screenClass = (s: ToolbarScreen): string =>
+  screen.value === s ? "border-b-accent text-fg font-semibold" : "border-b-transparent text-muted font-medium hover:text-fg";
+const pageNumbers = computed(() => Array.from({ length: props.pages ?? 1 }, (_, i) => i));
 </script>
 
 <template>
-  <header class="flex h-10 flex-none items-center border-b border-border bg-panel px-4">
-    <span class="font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
-    <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
-      <!-- Both views: the pair that switches between them. Fenced off with a rule because it is
-           the only group here that changes WHICH VIEW you are in — everything to its right acts
-           within the current one, and a flat row of equal buttons hid that (#941). Same rule
-           treatment as the status tally at the other end of the nav. -->
-      <span class="mr-1.5 inline-flex flex-none items-center gap-[3px] border-r border-border pr-2.5" role="group" aria-label="Switch view">
-        <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
-        <!-- The way IN to the workspace's own data, beside the views it is a peer of — the content
-             surfaces used to be reachable only from the single view (#886), which left them with
-             no door at all once that view goes. One button here rather than four: the rest appear
-             below once you are inside, so the row a terminal user sees does not grow by four.
-             Same `database` icon as the cell header's collections pane (CellChromeButtons.vue), so
-             the door and the pane read as one thing wherever you meet them. -->
-        <!-- The badge says how many chats are answerable behind this door (#2001). They ARE grid
-             cells — see the note on `chatCount` above — so this is not the only place they can be
-             seen; what it adds while you are looking at the grid is that any exist at all. The one
-             it is the ONLY witness for is a chat the grid could not take (a full grid drops the
-             filing, `dropCollectionChat`), which has no cell to wear the collection's mark (#2020).
-             The door wears the count, the way the bell wears its unread one. -->
+  <header class="relative flex-none border-b border-border">
+    <div class="flex h-10 items-center gap-2.5 bg-panel pl-4 pr-3">
+      <span class="mr-1.5 flex-none font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
+      <nav class="flex flex-none items-center gap-0.5" :aria-label="t('toolbar.sectionsNav')" data-testid="toolbar-sections">
+        <button
+          type="button"
+          data-testid="section-terminal"
+          class="h-7 cursor-pointer rounded-md border-0 px-[11px] font-sans text-[13px]"
+          :class="sectionClass('terminal')"
+          :aria-current="section === 'terminal' ? 'page' : undefined"
+          @click="gotoSection('terminal')"
+        >
+          {{ t("toolbar.sections.terminal") }}
+        </button>
         <span class="relative inline-flex flex-none">
-          <LauncherButton icon="database" :title="collectionsTitle" :label="collectionsTitle" :active="collectionsActive" @click="showCollections" />
+          <button
+            type="button"
+            data-testid="section-workspace"
+            class="h-7 cursor-pointer rounded-md border-0 px-[11px] font-sans text-[13px]"
+            :class="sectionClass('workspace')"
+            :title="workspaceTitle"
+            :aria-label="workspaceTitle"
+            :aria-current="section === 'workspace' ? 'page' : undefined"
+            @click="gotoSection('workspace')"
+          >
+            {{ t("toolbar.sections.workspace") }}
+          </button>
           <span
             v-if="chatCount"
-            class="pointer-events-none absolute right-px top-px box-border h-[14px] min-w-[14px] rounded-[7px] bg-accent px-[3px] font-sans text-[9px] font-bold leading-[14px] text-on-accent"
+            data-testid="workspace-chat-count"
+            class="pointer-events-none absolute -right-1 -top-1 box-border h-[14px] min-w-[14px] rounded-[7px] bg-accent px-[3px] font-sans text-[9px] font-bold leading-[14px] text-on-accent"
             aria-hidden="true"
             >{{ chatCount > 99 ? "99+" : chatCount }}</span
           >
         </span>
-      </span>
-      <!-- The promoted favourites, right of the door they used to hide behind (#1984). They belong on
-           THIS side of the fence and not with the buttons after it: pressing one leaves the view you
-           are in, exactly as Grid and Collections do, where everything to the right acts within the
-           current view. Their own rule, because they are the user's list rather than the app's pair.
-           Nothing renders when none is promoted — the empty case has to leave the header, rule
-           included, exactly as it was. -->
+      </nav>
+      <!-- The promoted favourites. Nothing renders when none is promoted — the empty case leaves
+           the header, rule included, exactly as it was. -->
       <span
         v-if="pins.length"
-        class="mr-1.5 inline-flex flex-none items-center gap-[3px] border-r border-border pr-2.5"
+        class="inline-flex flex-none items-center gap-[3px] border-l border-border pl-2.5"
         role="group"
         aria-label="Pinned collections and feeds"
       >
@@ -228,128 +221,155 @@ function showRooms(): void {
           @click="browseGotoDetail(pin.kind, pin.slug)"
         />
       </span>
-      <!-- The other content surfaces, revealed by being IN the section rather than always present.
-           Same reasoning as the fence above: everything here acts within the view you are in. -->
-      <template v-if="inContent">
-        <LauncherButton icon="rss_feed" title="Feeds" label="Feeds" :active="feedsActive" @click="showFeeds" />
-        <LauncherButton icon="menu_book" title="Wiki" label="Wiki" :active="wikiActive" @click="showWiki" />
-        <LauncherButton icon="account_balance" title="Accounting" label="Accounting" :active="accountingActive" @click="showAccounting" />
-        <LauncherButton icon="folder_open" title="Files" label="Files" :active="filesActive" @click="showFiles" />
-      </template>
-      <!-- The grid's OWN controls, and only while the grid is on screen. They act on cells the user
-           cannot see once a full-screen overlay covers them — a new terminal appearing behind the
-           wiki, an ordering change nobody watches — and the rate gauge below is status for a view
-           that is not showing. The switch group above never hides, so this never strands anyone:
-           Grid view brings the terminals back and these with them.
-           Work under supervision: PRs and the worklog sit with the terminals rather than behind the
-           Collections door, which is why they are not in CONTENT_ROUTES. -->
-      <template v-if="onGridRoute">
-        <LauncherButton icon="call_merge" title="Pull requests" label="Pull requests" :active="prsActive" @click="showPrs" />
-        <LauncherButton icon="forum" title="Rooms — round-table conversations" label="Rooms" :active="roomsActive" @click="showRooms" />
-        <LauncherButton
-          icon="architecture"
-          :title="t('blueprints.toolbar')"
-          :label="t('blueprints.title')"
-          :active="blueprintsOpen"
-          @click="blueprintsViewOpen()"
-        />
-        <LauncherButton
-          icon="history_edu"
-          title="Worklog — the dev work log in the wiki (#worklog)"
-          label="Worklog"
-          :active="worklogActive"
-          @click="showWorklog"
-        />
-        <LauncherButton
-          icon="add"
-          :title="addTerminalActive ? 'Close the launch panel' : 'Open the launch panel to start a terminal'"
-          label="New terminal"
-          :active="addTerminalActive"
-          @click="emit('add-terminal')"
-        />
-        <LauncherButton :icon="sortButton.icon" :title="sortButton.title" :label="sortButton.label" :active="sortButton.active" @click="emit('toggle-sort')" />
-      </template>
-      <span
-        v-if="hasSummary && statusCounts"
-        class="ml-1.5 inline-flex flex-none items-center gap-2 border-l border-border pl-2.5"
-        role="img"
-        :aria-label="`Grid status — ${summaryTitle}`"
-        :title="summaryTitle"
-      >
-        <span v-if="statusCounts.blocked" class="inline-flex items-center gap-1 font-mono text-[12px] leading-none text-amber" aria-hidden="true">
-          <span class="h-2 w-2 rounded-full bg-current" />{{ statusCounts.blocked }}
-        </span>
-        <!-- Green like every other `done` mark (#1307), but --ok rather than --done: this tally is
-             INK on the toolbar, and --done is a fill colour that reads at 2.3:1 on a white panel.
-             --ok is the same pairing --warn/--amber already make for the blocked count. -->
-        <span v-if="statusCounts.done" class="inline-flex items-center gap-1 font-mono text-[12px] leading-none text-ok" aria-hidden="true">
-          <span class="h-2 w-2 rounded-full bg-current" />{{ statusCounts.done }}
-        </span>
-        <span v-if="statusCounts.working" class="inline-flex items-center gap-1 font-mono text-[12px] leading-none text-muted" aria-hidden="true">
-          <span class="h-2 w-2 rounded-full bg-current" />{{ statusCounts.working }}
-        </span>
-      </span>
-      <RateLimitGauge v-if="onGridRoute" />
-      <MachineLoadGauge v-if="onGridRoute && showLoadAverage" />
-    </nav>
-    <NotificationBell class="ml-auto" />
-    <RemoteHostControl />
-    <div v-if="updateBadge" ref="updateRoot" class="relative mr-1 flex-none">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 rounded-full border border-accent px-2 py-0.5 text-[12px] leading-none text-accent hover:bg-selected"
-        :class="{ 'bg-selected': updateOpen }"
-        :title="updateBadge.text"
-        :aria-label="updateBadge.text"
-        :aria-expanded="updateOpen"
-        aria-haspopup="true"
-        @click="toggleUpdate"
-      >
-        <span class="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">upgrade</span>
-        Update
-      </button>
+      <span class="min-w-0 flex-auto" />
+      <!-- Everything here is READ, never pressed (the phone line excepted, which opens its settings).
+           It sits between rules so it cannot be mistaken for the buttons on either side. -->
       <div
-        v-if="updateOpen"
-        class="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-panel p-3 text-[13px] text-fg shadow-lg"
+        class="flex min-w-0 items-center gap-3.5 overflow-hidden whitespace-nowrap border-x border-border px-3.5"
         role="group"
-        aria-label="Update available"
+        :aria-label="t('toolbar.status')"
+        data-testid="toolbar-status"
       >
-        <p class="mb-2 font-semibold">A newer version is available</p>
-        <template v-if="updateBadge.command">
-          <p class="mb-1 text-muted">Run this to update:</p>
-          <div class="flex items-center gap-2">
-            <code class="min-w-0 flex-1 overflow-x-auto rounded bg-selected px-2 py-1 font-mono text-[12px] whitespace-nowrap">{{ updateBadge.command }}</code>
-            <button type="button" class="flex-none rounded border border-border px-2 py-1 text-[12px] hover:bg-selected" @click="copyUpdateCommand">
-              {{ copied ? "Copied" : "Copy" }}
+        <span v-if="summary.show && statusCounts" class="inline-flex flex-none items-center gap-3 font-sans text-[12px] leading-none" :title="summary.title">
+          <span v-if="statusCounts.blocked" class="inline-flex items-center gap-[5px] text-amber">
+            <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true" />{{ t("status.attention.blocked") }} {{ statusCounts.blocked }}
+          </span>
+          <span v-if="statusCounts.working" class="inline-flex items-center gap-[5px] text-muted">
+            <span class="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />{{ t("status.attention.working") }} {{ statusCounts.working }}
+          </span>
+          <!-- --ok rather than --done: this tally is INK on the toolbar, and --done is a fill colour
+               that reads at 2.3:1 on a white panel. -->
+          <span v-if="statusCounts.done" class="inline-flex items-center gap-[5px] text-ok">
+            <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true" />{{ t("status.attention.done") }} {{ statusCounts.done }}
+          </span>
+        </span>
+        <RateLimitGauge />
+        <MachineLoadGauge v-if="showLoadAverage" />
+        <RemoteHostStatus @open-settings="emit('settings', 'phone')" />
+      </div>
+      <div v-if="updateBadge" ref="updateRoot" class="relative flex-none">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 rounded-full border border-accent px-2 py-0.5 text-[12px] leading-none text-accent hover:bg-selected"
+          :class="{ 'bg-selected': updateOpen }"
+          :title="updateBadge.text"
+          :aria-label="updateBadge.text"
+          :aria-expanded="updateOpen"
+          aria-haspopup="true"
+          @click="toggleUpdate"
+        >
+          <span class="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">upgrade</span>
+          Update
+        </button>
+        <div
+          v-if="updateOpen"
+          class="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-panel p-3 text-[13px] text-fg shadow-lg"
+          role="group"
+          aria-label="Update available"
+        >
+          <p class="mb-2 font-semibold">A newer version is available</p>
+          <template v-if="updateBadge.command">
+            <p class="mb-1 text-muted">Run this to update:</p>
+            <div class="flex items-center gap-2">
+              <code class="min-w-0 flex-1 overflow-x-auto rounded bg-selected px-2 py-1 font-mono text-[12px] whitespace-nowrap">{{
+                updateBadge.command
+              }}</code>
+              <button type="button" class="flex-none rounded border border-border px-2 py-1 text-[12px] hover:bg-selected" @click="copyUpdateCommand">
+                {{ copied ? "Copied" : "Copy" }}
+              </button>
+            </div>
+          </template>
+          <p v-else class="text-muted">{{ updateBadge.text }}</p>
+        </div>
+      </div>
+      <!-- Star this project on GitHub. It retires itself once starred (or once the user has opened
+           the repo page), so it is a one-time ask rather than a fixture. -->
+      <LauncherButton v-if="starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
+      <LauncherButton
+        icon="keyboard_command_key"
+        data-testid="toolbar-commands"
+        :title="t('commandPalette.open')"
+        :label="t('commandPalette.open')"
+        @click="openCommandPalette"
+      />
+      <NotificationBell />
+      <LauncherButton icon="settings" title="Settings" label="Settings" @click="emit('settings')" />
+    </div>
+
+    <div class="flex h-[38px] items-stretch bg-base px-3" data-testid="toolbar-section-bar">
+      <!-- Creation leads the section, where reading starts — the place "New" has in most apps, and
+           across the screen from every cell's close button. Before the tabs rather than after them,
+           so it never moves when a tab appears or goes. -->
+      <div v-if="section === 'terminal'" class="mr-2 flex flex-none items-center border-r border-border pr-3">
+        <button
+          type="button"
+          data-testid="toolbar-new-terminal"
+          class="inline-flex h-[26px] cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border-0 pl-1.5 pr-2.5 font-sans text-[12px] font-semibold text-on-accent hover:bg-accent-bg-hover"
+          :class="addTerminalActive ? 'bg-accent-bg-hover' : 'bg-accent-bg'"
+          :aria-pressed="addTerminalActive"
+          :title="addTerminalActive ? t('toolbar.closeLaunchPanel') : t('toolbar.newTerminal')"
+          @click="newTerminal"
+        >
+          <span class="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">add</span>{{ t("toolbar.newTerminal") }}
+        </button>
+      </div>
+      <nav class="flex min-w-0 items-stretch gap-1 overflow-x-auto" :aria-label="t('toolbar.screensNav')" data-testid="toolbar-screens">
+        <button
+          v-for="s in screens"
+          :key="s"
+          type="button"
+          :data-testid="`screen-${s}`"
+          class="flex-none cursor-pointer whitespace-nowrap border-0 border-b-2 bg-transparent px-[9px] font-sans text-[13px]"
+          :class="screenClass(s)"
+          :aria-current="screen === s ? 'page' : undefined"
+          @click="gotoScreen(s)"
+        >
+          {{ screenLabel(s) }}
+        </button>
+      </nav>
+      <span class="min-w-0 flex-auto" />
+      <!-- The grid's own controls, only while the grid is the screen: they act on cells nobody can see
+           under another screen. -->
+      <div v-if="onGrid" class="flex flex-none items-center gap-2.5">
+        <nav v-if="(pages ?? 1) > 1 && !zoomed" class="flex items-center gap-1" :aria-label="t('toolbar.pages')" data-testid="toolbar-pages">
+          <button
+            v-for="p in pageNumbers"
+            :key="p"
+            type="button"
+            class="min-w-[26px] cursor-pointer rounded-md border border-border bg-base px-2 py-[3px] font-mono text-[12px] text-muted hover:bg-hover hover:text-fg aria-pressed:border-accent aria-pressed:bg-hover aria-pressed:text-fg"
+            :aria-pressed="p === page"
+            :aria-label="t('toolbar.page', { n: p + 1 })"
+            @click="emit('switch-page', p)"
+          >
+            {{ p + 1 }}
+          </button>
+        </nav>
+        <SortModeMenu :mode="sortMode ?? 'auto'" @select="emit('set-sort-mode', $event)" />
+        <template v-if="zoomed">
+          <span class="font-sans text-[12px] text-dim">{{ t("toolbar.view.label") }}</span>
+          <div class="flex overflow-hidden rounded-md border border-border" role="group" :aria-label="t('toolbar.view.label')" data-testid="toolbar-view">
+            <button
+              type="button"
+              class="h-6 cursor-pointer border-0 px-[9px] font-sans text-[12px]"
+              :class="listMode ? 'bg-selected font-semibold text-fg' : 'bg-transparent text-muted hover:text-fg'"
+              :aria-pressed="!!listMode"
+              @click="emit('set-list-mode', true)"
+            >
+              {{ t("toolbar.view.list") }}
+            </button>
+            <button
+              type="button"
+              class="h-6 cursor-pointer border-0 px-[9px] font-sans text-[12px]"
+              :class="!listMode ? 'bg-selected font-semibold text-fg' : 'bg-transparent text-muted hover:text-fg'"
+              :aria-pressed="!listMode"
+              @click="emit('set-list-mode', false)"
+            >
+              {{ t("toolbar.view.strip") }}
             </button>
           </div>
         </template>
-        <p v-else class="text-muted">{{ updateBadge.text }}</p>
       </div>
     </div>
-    <!-- Grid only: star this project on GitHub. It retires itself once starred (or once the
-         user has opened the repo page), so it is a one-time ask rather than a fixture. -->
-    <LauncherButton v-if="starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
-    <LauncherButton
-      :icon="soundButton.icon"
-      :title="soundButton.label"
-      :label="soundButton.label"
-      :active="soundButton.active"
-      :tone="soundButton.tone"
-      :aria-pressed="soundEnabled"
-      @click="toggleSound"
-    />
-    <!-- Zoomed-grid only: switch the expanded terminal's side panel between the cockpit roster and
-         the thumbnail strip. Sits at the right end (next to Settings) and hides when nothing is expanded. -->
-    <LauncherButton
-      v-if="showViewToggle"
-      :icon="listMode ? 'view_carousel' : 'view_agenda'"
-      :title="listMode ? 'Show thumbnail strip' : 'Show list roster'"
-      :label="listMode ? 'Show thumbnail strip' : 'Show list roster'"
-      @click="emit('toggle-view')"
-    />
-    <LauncherButton icon="keyboard_command_key" :title="t('commandPalette.open')" :label="t('commandPalette.open')" @click="openCommandPalette" />
-    <LauncherButton icon="settings" title="Settings" label="Settings" @click="emit('settings')" />
     <CommandPalette v-if="paletteOpen" />
   </header>
 </template>

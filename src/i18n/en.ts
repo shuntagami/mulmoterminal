@@ -53,6 +53,7 @@ export const en = {
       sounds: "Notification sounds",
       push: "Web Push notifications",
       quickCommands: "Phone quick commands",
+      phone: "Phone link",
       github: "GitHub and GitLab",
       prRepos: "Pull request repos",
       google: "Google account",
@@ -92,6 +93,8 @@ export const en = {
         zoomPrev: "Enlarge the previous terminal",
         focusNext: "Move the cursor to the next terminal (grid only)",
         focusPrev: "Move the cursor to the previous terminal (grid only)",
+        cellMovePrev: "Move this terminal earlier",
+        cellMoveNext: "Move this terminal later",
         nextAttention: "Jump to a terminal that needs you",
         terminalNew: "Open the launch panel",
         terminalNewHere: "Open the launch panel on this terminal's directory",
@@ -153,7 +156,7 @@ export const en = {
 
     sounds: {
       intro:
-        "Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The speaker button in the toolbar silences all of them at once.",
+        "Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The Attention sound switch under the toolbar's bell silences all of them at once.",
       beepAria: "Beep when a session is {kind}",
       soundFor: "Sound for {label}",
       playFor: "Play the {label} sound",
@@ -208,6 +211,21 @@ export const en = {
         finished: "the agent replied and the output is unread",
         waiting: "it stopped to ask — a permission prompt or a question. Fires once per prompt, so a task that asks a lot pushes a lot",
       },
+    },
+
+    phone: {
+      intro: "Drive this MulmoTerminal from your phone: see the sessions, answer an agent that is waiting, start work. Web Push also needs this connection.",
+      online: "Connected",
+      reconnecting: "Reconnecting…",
+      offline: "Not connected",
+      signedInAs: "Signed in as {uid}",
+      lastError: "Last channel error: {error}",
+      connect: "Connect (Google sign-in)",
+      connecting: "Connecting…",
+      disconnect: "Disconnect",
+      disconnecting: "Disconnecting…",
+      openOnPhone: "Open this on your phone, signed in with the same Google account:",
+      scan: "Or scan this QR code with your phone's camera.",
     },
 
     github: {
@@ -418,7 +436,7 @@ export const en = {
 
     toolbarPins: {
       intro:
-        "Collections and feeds you pinned can also sit in the toolbar itself, beside Grid and Collections — one press instead of opening Collections first and finding them in the row at its top. Choose up to {max}; the toolbar is unchanged while none is chosen.",
+        "Collections and feeds you pinned can also sit in the toolbar itself, beside Terminals and Workspace — one press instead of opening Collections first and finding them in the row at its top. Choose up to {max}; the toolbar is unchanged while none is chosen.",
       empty: "Nothing is pinned yet. Open Collections and pin a collection or a feed there first — this list offers what you pinned.",
       unavailable:
         "The pinned list is unavailable ({error}), so there is nothing to offer here. The toolbar keeps whatever it was already showing; reopen this once the list is back.",
@@ -581,6 +599,8 @@ export const en = {
       zoomPrev: "Moves the enlargement to the previous terminal.",
       focusNext: "Walks the cursor to the next terminal in the tiled grid.",
       focusPrev: "Walks the cursor to the previous terminal in the tiled grid.",
+      cellMovePrev: "Moves the enlarged terminal one place earlier — the keyboard way to what dragging its handle does. Switches the order to Manual.",
+      cellMoveNext: "Moves the enlarged terminal one place later. Switches the order to Manual.",
       nextAttention: "Goes to the next terminal waiting for you, then finished ones, then idle ones.",
       terminalNew: "Opens the launch panel on the default workspace.",
       terminalNewHere: "Opens the launch panel on the current terminal's directory.",
@@ -601,6 +621,40 @@ export const en = {
       exit: "Back to input",
     },
   },
+  toolbar: {
+    sectionsNav: "Sections",
+    sections: { terminal: "Terminals", workspace: "Workspace" },
+    screensNav: "Screens",
+    screens: {
+      grid: "Grid",
+      github: "PRs & Issues",
+      rooms: "Rooms",
+      worklog: "Worklog",
+      collections: "Collections",
+      feeds: "Feeds",
+      wiki: "Wiki",
+      accounting: "Accounting",
+      files: "Files",
+    },
+    newTerminal: "New terminal",
+    closeLaunchPanel: "Close the launch panel",
+    status: "Status",
+    sort: {
+      label: "Order: {mode}",
+      menu: "Order",
+      modes: { auto: "Attention first", manual: "Manual", priority: "Priority" },
+      help: {
+        auto: "Waiting and finished terminals come first",
+        manual: "The order you dragged them into",
+        priority: "Each directory's orderPriority, lowest first",
+      },
+    },
+    view: { label: "View", list: "List", strip: "Thumbnails" },
+    pages: "Pages",
+    page: "Page {n}",
+    phone: { online: "Phone connected", reconnecting: "Phone reconnecting…", offline: "Phone disconnected", open: "Phone link settings" },
+    sound: { label: "Attention sound", blocked: "The browser is blocking it — click anywhere on the page to allow sound" },
+  },
   // The cockpit roster row's ⋮ menu (#2299).
   rowMenu: {
     trigger: "Actions for this terminal",
@@ -608,8 +662,6 @@ export const en = {
     markUnread: "Mark unread",
     markUnreadHint: "Show it as finished again, to come back to it later",
     markRead: "Mark read",
-    moveUp: "Move up",
-    moveDown: "Move down",
     setAside: "Set aside",
     wake: "Wake",
     close: "Close",

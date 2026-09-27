@@ -84,16 +84,24 @@ export const CELL_CHIP_ICON = "material-symbols-outlined text-[13px]";
 export const CELL_MENU_ITEM =
   "cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg";
 
-// The header button whose pane is CURRENTLY OPEN. Files, Canvas and Tools share one slot beside
-// the enlarged terminal, so exactly one of them can be in this state — and which one has to be
-// readable without moving the pointer. Idle chrome differs from hover by a background alone,
-// which says nothing once the cursor is elsewhere, so this fills AND recolours the ink.
+// A header button that is ON: the Panel button while this cell has a side pane open, the ⋮ while
+// its menu is. Which state it is in has to be readable without moving the pointer. Idle chrome
+// differs from hover by a background alone, which says nothing once the cursor is elsewhere, so
+// this fills AND recolours the ink.
 //
 // The same --bg-selected the rest of the app marks a selection with, rather than a colour of its
 // own: a header button is not a new kind of selected thing. Note it is not `--cell-btn`-tinted —
 // a directory's chrome colour drives the IDLE ink, and letting it drive this one too would make
 // "selected" mean a different shade per directory.
-export const CELL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_BTN_SIZE} cursor-pointer bg-selected text-accent hover:bg-selected-hover hover:text-accent`;
+const CELL_BTN_INK_ACTIVE = "cursor-pointer bg-selected text-accent hover:bg-selected-hover hover:text-accent";
+export const CELL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_BTN_SIZE} ${CELL_BTN_INK_ACTIVE}`;
+// A button with a WORD on it (Panel). Its own size rather than CELL_BTN_SIZE plus overrides: that
+// size carries the 16px a lone glyph is drawn at, and a second `text-*` on the same element loses
+// or wins by Tailwind's output order — it lost, and the word came out a third bigger than every
+// other label in the header. The glyph inside sets its own 16px.
+const CELL_LABEL_BTN_SIZE = "h-[26px] gap-1 px-1.5 font-sans text-[12px]";
+export const CELL_LABEL_BTN = `${CELL_BTN_BOX} ${CELL_LABEL_BTN_SIZE} ${CELL_BTN_INK}`;
+export const CELL_LABEL_BTN_ACTIVE = `${CELL_BTN_SHAPE} ${CELL_LABEL_BTN_SIZE} ${CELL_BTN_INK_ACTIVE}`;
 export const CELL_CLOSE_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-[var(--err-hover-bg)] hover:text-err-text`;
 
 // A path clipped from the FRONT: `rtl` puts the ellipsis at the start so the tail — the

@@ -5,12 +5,13 @@ import TerminalGrid from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import { mountRequests } from "../../helpers/mountRequests";
 
-// "Browse files in the app" in a cell's path menu (#1910). It reaches the grid as `open-files`,
-// and the grid answers it the way it answers the unread-canvas chip: the pane lives beside an
-// ENLARGED cell, so a tiled cell asking for it is asking to be enlarged too.
-//
-// The enlargement itself belongs to the parent — this component only asks — so what is pinned
-// here is the ask, plus what the grid does with the files buffer on the way.
+// Opening the files pane on the enlarged cell, from the entrances that are left. The path menu's
+// "Browse files in the app" (#1910), which enlarged a tiled cell AND opened the pane in one
+// gesture, is gone: the header's Panel button and the side pane's tabs are the way to Files now,
+// and neither enlarges anything — pressed on a tile, the Panel button only records what that cell
+// wants (#1378, pinned in TerminalGrid.spec.ts). What remains here is the Panel button and the
+// `files-find` shortcut, under the strict request harness: neither may send the grid asking about
+// a cell the zoom is not on.
 
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({ subscribe: () => () => {}, onReconnect: () => () => {} }),
@@ -22,16 +23,21 @@ const openFinder = vi.fn();
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "rightPane", "canvasAvailable"],
-    emits: ["toggle-expand", "toggle-files", "open-files", "toggle-canvas", "open-canvas", "session", "cwd", "close", "move", "status"],
+    props: ["expanded", "rightPane"],
+    emits: ["toggle-expand", "toggle-panel", "open-canvas", "session", "cwd", "close", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
 vi.mock("../../../src/components/CommandCell.vue", () => ({
-  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "close", "move", "status"], template: "<div />" },
+  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "toggle-panel", "close", "status"], template: "<div />" },
 }));
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
-  default: { name: "LauncherCell", props: ["expanded", "launcher"], emits: ["toggle-expand", "close", "move", "status", "session"], template: "<div />" },
+  default: {
+    name: "LauncherCell",
+    props: ["expanded", "launcher"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
+    template: "<div />",
+  },
 }));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
   default: {
@@ -82,16 +88,7 @@ type Grid = ReturnType<typeof mountGrid>;
 const cells = (w: Grid) => w.findAllComponents({ name: "TerminalCell" });
 const filesPane = (w: Grid) => w.findComponent({ name: "FilesPane" });
 
-/** The parent honouring a `toggle-expand`, which is what puts the pane beside the new cell. */
-const applyExpand = async (w: Grid, uid: number) => {
-  // Before the props change, so a request issued during that flush is judged against the cell the
-  // zoom is moving TO, and one for the cell it left is the stale request this is here to catch.
-  requests.enlarge(sessionOf(uid));
-  await w.setProps({ expandedUid: uid });
-  await flushPromises();
-};
-
-describe("open-files from a cell's path menu", () => {
+describe("opening the files pane on the enlarged cell", () => {
   beforeEach(() => {
     localStorage.clear();
     requests.install();
@@ -121,9 +118,10 @@ describe("open-files from a cell's path menu", () => {
     requests.settled();
   });
 
-  it("opens the pane on the enlarged cell without asking to enlarge again", async () => {
+  // The Panel button reopens the pane used last, which on a grid that has shown none is Files.
+  it("opens the pane from the Panel button without asking to enlarge again", async () => {
     const w = mountGrid();
-    cells(w)[0].vm.$emit("open-files");
+    cells(w)[0].vm.$emit("toggle-panel");
     await flushPromises();
 
     expect(w.emitted("toggle-expand")).toBeUndefined();
@@ -148,71 +146,24 @@ describe("open-files from a cell's path menu", () => {
     w.unmount();
   });
 
+  // Not a toggle, unlike the Panel button: the shortcut is "show me", so a pane that is already up
+  // stays up and stays where it is.
   it("just opens the finder when the pane is already up, leaving the pane where it is", async () => {
     const w = mountGrid();
-    cells(w)[0].vm.$emit("open-files");
+    cells(w)[0].vm.$emit("toggle-panel");
     await flushPromises();
+    expect(filesPane(w).exists()).toBe(true); // or "already up" is not what this tests
+    flush.mockClear();
 
     await (w.vm as unknown as { openFilesFinder: () => Promise<void> }).openFilesFinder();
     await flushPromises();
 
     expect(openFinder).toHaveBeenCalledTimes(1);
+    expect(filesPane(w).exists()).toBe(true);
     expect(filesPane(w).props("cwd")).toBe("/work/a");
-    w.unmount();
-  });
-
-  it("asks for the enlargement first when the cell is tiled, and lands the pane on THAT cell", async () => {
-    const w = mountGrid();
-    cells(w)[1].vm.$emit("open-files");
-    await applyExpand(w, 2);
-
-    expect(w.emitted("toggle-expand")).toEqual([[2]]);
-    expect(filesPane(w).exists()).toBe(true);
-    // Rooted at the cell that was asked for, not the one that was enlarged when it was pressed.
-    expect(filesPane(w).props("cwd")).toBe("/work/b");
-    w.unmount();
-  });
-
-  it("is not a toggle — pressing it again on a cell that already shows the pane keeps it open", async () => {
-    const w = mountGrid();
-    cells(w)[0].vm.$emit("open-files");
-    await flushPromises();
-    cells(w)[0].vm.$emit("open-files");
-    await flushPromises();
-
-    expect(filesPane(w).exists()).toBe(true);
-    w.unmount();
-  });
-
-  it("does not flush a pane that is not moving", async () => {
-    const w = mountGrid();
-    cells(w)[0].vm.$emit("open-files");
-    await flushPromises();
-    flush.mockClear();
-
-    cells(w)[0].vm.$emit("open-files");
-    await flushPromises();
-
     // Nothing unmounts, so there is nothing to save — and a silent save nobody asked for is a
     // write to the user's file.
     expect(flush).not.toHaveBeenCalled();
-    w.unmount();
-  });
-
-  it("flushes a files pane that another cell is taking, and stays put when that save fails", async () => {
-    const w = mountGrid();
-    cells(w)[0].vm.$emit("open-files");
-    await flushPromises();
-
-    flush.mockClear();
-    flush.mockResolvedValue(false); // could be neither saved nor backed up
-    cells(w)[1].vm.$emit("open-files");
-    await flushPromises();
-
-    expect(flush).toHaveBeenCalledTimes(1);
-    // Refused: no enlargement asked for, and the pane keeps the cell and root it is on.
-    expect(w.emitted("toggle-expand")).toBeUndefined();
-    expect(filesPane(w).props("cwd")).toBe("/work/a");
     w.unmount();
   });
 });

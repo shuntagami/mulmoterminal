@@ -47,6 +47,7 @@ export const ko: Messages = {
       sounds: "알림음",
       push: "Web Push 알림",
       quickCommands: "휴대폰 상용구",
+      phone: "휴대폰 연결",
       github: "GitHub와 GitLab",
       prRepos: "풀 리퀘스트 저장소",
       google: "Google 계정",
@@ -85,6 +86,8 @@ export const ko: Messages = {
         zoomPrev: "이전 터미널 확대",
         focusNext: "다음 터미널로 커서 옮기기(그리드 보기에서만)",
         focusPrev: "이전 터미널로 커서 옮기기(그리드 보기에서만)",
+        cellMovePrev: "이 터미널을 앞으로 옮기기",
+        cellMoveNext: "이 터미널을 뒤로 옮기기",
         nextAttention: "나를 기다리는 터미널로 이동",
         terminalNew: "실행 패널 열기",
         terminalNewHere: "이 터미널의 디렉터리에서 실행 패널 열기",
@@ -145,7 +148,7 @@ export const ko: Messages = {
 
     sounds: {
       intro:
-        "어느 순간에 소리를 낼지, 그리고 각각 무엇을 울릴지. 알림을 소음으로 바꾸는 것은 에이전트를 한꺼번에 여러 개 돌리는 일입니다 —— 필요 없는 것은 체크를 해제하세요. 툴바의 스피커 버튼으로 한 번에 전부 음소거할 수 있습니다.",
+        "어느 순간에 소리를 낼지, 그리고 각각 무엇을 울릴지. 알림을 소음으로 바꾸는 것은 에이전트를 한꺼번에 여러 개 돌리는 일입니다 —— 필요 없는 것은 체크를 해제하세요. 툴바의 벨을 열면 나오는 '알림음' 스위치로 한 번에 전부 음소거할 수 있습니다.",
       beepAria: "세션이 {kind} 상태일 때 소리 내기",
       soundFor: "{label} 소리",
       playFor: "{label} 소리 재생",
@@ -199,6 +202,22 @@ export const ko: Messages = {
         finished: "에이전트가 답했고 그 출력을 아직 읽지 않음",
         waiting: "권한 확인이나 질문으로 멈춤. 물어볼 때마다 한 번씩 울리므로, 자주 묻는 작업은 자주 푸시합니다",
       },
+    },
+
+    phone: {
+      intro:
+        "휴대폰에서 이 MulmoTerminal을 조작할 수 있습니다. 세션을 보고, 기다리는 에이전트에 답하고, 작업을 시작합니다. Web Push도 이 연결이 있어야 합니다.",
+      online: "연결됨",
+      reconnecting: "다시 연결하는 중…",
+      offline: "연결 안 됨",
+      signedInAs: "{uid}(으)로 로그인됨",
+      lastError: "마지막 채널 오류: {error}",
+      connect: "연결(Google 로그인)",
+      connecting: "연결하는 중…",
+      disconnect: "연결 끊기",
+      disconnecting: "연결을 끊는 중…",
+      openOnPhone: "같은 Google 계정으로 로그인한 휴대폰에서 이것을 여세요:",
+      scan: "또는 휴대폰 카메라로 이 QR 코드를 읽으세요.",
     },
 
     github: {
@@ -409,7 +428,7 @@ export const ko: Messages = {
 
     toolbarPins: {
       intro:
-        "고정해 둔 컬렉션과 피드를 툴바 자체에, Grid와 Collections 옆에 둘 수 있습니다 —— Collections를 먼저 열고 맨 위 줄에서 찾는 대신 한 번에 누릅니다. 최대 {max}개까지 고를 수 있고, 하나도 고르지 않으면 툴바는 그대로입니다.",
+        "고정해 둔 컬렉션과 피드를 툴바 자체에, 터미널과 워크스페이스 옆에 둘 수 있습니다 —— Collections를 먼저 열고 맨 위 줄에서 찾는 대신 한 번에 누릅니다. 최대 {max}개까지 고를 수 있고, 하나도 고르지 않으면 툴바는 그대로입니다.",
       empty: "아직 고정한 것이 없습니다. 먼저 Collections를 열고 컬렉션이나 피드를 고정하세요 —— 이 목록이 내놓는 것은 고정해 둔 것들입니다.",
       unavailable: "고정 목록을 쓸 수 없어({error}) 여기 내놓을 것이 없습니다. 툴바는 이미 보여 주던 것을 그대로 유지합니다. 목록이 돌아오면 다시 열어 주세요.",
       full: "{max}개가 한도입니다. 자리를 만들려면 하나를 비우세요 —— 몇 개를 넘어서면 툴바가 원래 싣고 있던 것을 밀어냅니다.",
@@ -561,6 +580,8 @@ export const ko: Messages = {
       zoomPrev: "확대를 이전 터미널로 옮깁니다.",
       focusNext: "타일 그리드에서 커서를 다음 터미널로 옮깁니다.",
       focusPrev: "타일 그리드에서 커서를 이전 터미널로 옮깁니다.",
+      cellMovePrev: "확대한 터미널을 순서에서 한 칸 앞으로 옮깁니다. 핸들을 드래그하는 것과 같은 일을 키보드로 합니다. 정렬은 '수동'이 됩니다.",
+      cellMoveNext: "확대한 터미널을 순서에서 한 칸 뒤로 옮깁니다. 정렬은 '수동'이 됩니다.",
       nextAttention: "입력을 기다리는 터미널, 그다음 끝난 것, 그다음 유휴 상태인 것으로 이동합니다.",
       terminalNew: "기본 워크스페이스에서 실행 패널을 엽니다.",
       terminalNewHere: "현재 터미널의 디렉터리에서 실행 패널을 엽니다.",
@@ -581,14 +602,42 @@ export const ko: Messages = {
       exit: "입력으로 돌아가기",
     },
   },
+  toolbar: {
+    sectionsNav: "구역",
+    sections: { terminal: "터미널", workspace: "워크스페이스" },
+    screensNav: "화면",
+    screens: {
+      grid: "그리드",
+      github: "PRs & Issues",
+      rooms: "Rooms",
+      worklog: "Worklog",
+      collections: "Collections",
+      feeds: "Feeds",
+      wiki: "Wiki",
+      accounting: "Accounting",
+      files: "Files",
+    },
+    newTerminal: "새 터미널",
+    closeLaunchPanel: "실행 패널 닫기",
+    status: "전체 상태",
+    sort: {
+      label: "정렬: {mode}",
+      menu: "정렬",
+      modes: { auto: "주목순", manual: "수동", priority: "우선순위" },
+      help: { auto: "입력 대기와 완료된 셀이 먼저 온다", manual: "드래그로 늘어놓은 순서", priority: "각 디렉터리의 orderPriority가 작은 순" },
+    },
+    view: { label: "보기", list: "목록", strip: "썸네일" },
+    pages: "페이지",
+    page: "{n}페이지",
+    phone: { online: "휴대폰 연결됨", reconnecting: "휴대폰 다시 연결 중…", offline: "휴대폰 연결 끊김", open: "휴대폰 연결 설정" },
+    sound: { label: "알림음", blocked: "브라우저가 막고 있습니다. 페이지 아무 곳이나 클릭하면 소리가 납니다" },
+  },
   rowMenu: {
     trigger: "이 터미널 작업",
     title: "작업",
     markUnread: "읽지 않음으로 표시",
     markUnreadHint: "확인 대기 색을 다시 표시합니다",
     markRead: "읽음으로 표시",
-    moveUp: "위로 이동",
-    moveDown: "아래로 이동",
     setAside: "옆으로 치우기",
     wake: "깨우기",
     close: "닫기",

@@ -142,12 +142,15 @@ describe("mergeHeaderConfig", () => {
 });
 
 describe("DEFAULT_BUTTONS", () => {
-  it("is the starter set (file picker, PR) as config buttons", () => {
-    expect(DEFAULT_BUTTONS.map((b) => b.id)).toEqual(["pick-file", "pr"]);
+  it("is the starter set (the file picker) as config buttons", () => {
+    expect(DEFAULT_BUTTONS.map((b) => b.id)).toEqual(["pick-file"]);
     expect(DEFAULT_BUTTONS.find((b) => b.id === "pick-file")?.open).toEqual({ pickFile: true });
-    // pr self-hides outside a repo (isGitRepo) and without an open PR (resolver), so it is never
-    // noise — which is why it stayed a button while the directory ones became menu items.
-    expect(DEFAULT_BUTTONS.find((b) => b.id === "pr")?.when).toBe("isGitRepo");
+  });
+
+  // The branch's PR is one click on the cell's work chip, so a default button for it was a second
+  // way to the same place. It stays an ordinary button a user can list.
+  it("no longer carries a pr button", () => {
+    expect(DEFAULT_BUTTONS.some((b) => b.open?.pr)).toBe(false);
   });
 
   // reveal / files / terminal / gh are items in a session cell's PATH MENU now. As buttons they

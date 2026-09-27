@@ -25,6 +25,8 @@ import {
   canMoveCellBefore,
   reorderBefore,
   setSortMode,
+  adoptManualOrder,
+  moveBeside,
   moveCell,
   moveCellBefore,
   moveZoom,
@@ -812,6 +814,59 @@ describe("sessionCell (adopting a session spawned elsewhere)", () => {
 
   it("accepts a null cwd — the config may not have loaded when a session is adopted", () => {
     expect(sessionCell("s4", null, "claude")).toEqual({ session: "s4", cwd: null });
+  });
+});
+
+// Reordering works in every order mode and makes the order manual. It has to start from what the
+// user SEES: under auto the screen shows the sorted list, and `cells` still holds an older hand
+// arrangement the cells would otherwise jump back to the moment one is touched.
+describe("adoptManualOrder", () => {
+  it("takes the displayed order as the manual one and switches to manual", () => {
+    const s = make(running(3), { sortMode: "auto" });
+    const displayed = [s.cells[2], s.cells[0], s.cells[1]];
+    const next = adoptManualOrder(s, displayed);
+    expect(next.sortMode).toBe("manual");
+    expect(next.cells.map((c) => c.uid)).toEqual([2, 0, 1]);
+  });
+
+  it("changes nothing when the order is already manual", () => {
+    const s = make(running(3));
+    expect(adoptManualOrder(s, [s.cells[2], s.cells[0], s.cells[1]])).toBe(s);
+  });
+
+  // A page slice, or a list from before a cell closed, is not the whole order: going manual must
+  // not drop or invent cells to match it.
+  it("keeps the cells it has when the displayed list is not the same set", () => {
+    const s = make(running(3), { sortMode: "priority" });
+    const next = adoptManualOrder(s, [s.cells[1]]);
+    expect(next.sortMode).toBe("manual");
+    expect(next.cells).toBe(s.cells);
+  });
+});
+
+describe("moveBeside", () => {
+  it("puts a cell right after or right before another", () => {
+    const s = make(running(4));
+    expect(moveBeside(s, s.cells, 0, 2, true).cells.map((c) => c.uid)).toEqual([1, 2, 0, 3]);
+    expect(moveBeside(s, s.cells, 3, 1, false).cells.map((c) => c.uid)).toEqual([0, 3, 1, 2]);
+  });
+
+  // After the LAST cell is the end of the list, which is a real destination.
+  it("puts a cell at the end when it goes after the last one", () => {
+    const s = make(running(3));
+    expect(moveBeside(s, s.cells, 0, 2, true).cells.map((c) => c.uid)).toEqual([1, 2, 0]);
+  });
+
+  it("goes manual from what was on screen", () => {
+    const s = make(running(3), { sortMode: "auto" });
+    const next = moveBeside(s, [s.cells[2], s.cells[0], s.cells[1]], 1, 2, false);
+    expect(next.sortMode).toBe("manual");
+    expect(next.cells.map((c) => c.uid)).toEqual([1, 2, 0]);
+  });
+
+  it("changes nothing for a target that is not there", () => {
+    const s = make(running(3));
+    expect(moveBeside(s, s.cells, 0, 99, true)).toBe(s);
   });
 });
 

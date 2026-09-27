@@ -20,15 +20,20 @@ vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
     props: ["expanded", "rightPane"],
-    emits: ["toggle-expand", "toggle-files", "open-files", "session", "cwd", "close", "move", "status"],
+    emits: ["toggle-expand", "toggle-panel", "session", "cwd", "close", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
 vi.mock("../../../src/components/CommandCell.vue", () => ({
-  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "open-files", "close", "move", "status"], template: "<div />" },
+  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "toggle-panel", "close", "status"], template: "<div />" },
 }));
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
-  default: { name: "LauncherCell", props: ["expanded", "launcher"], emits: ["toggle-expand", "close", "move", "status", "session"], template: "<div />" },
+  default: {
+    name: "LauncherCell",
+    props: ["expanded", "launcher"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
+    template: "<div />",
+  },
 }));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
   default: {
@@ -71,8 +76,9 @@ type Grid = ReturnType<typeof mountGrid>;
 const cells = (w: Grid) => w.findAllComponents({ name: "TerminalCell" });
 const pane = (w: Grid) => w.findComponent({ name: "FilesPane" });
 
+// The enlarged cell's Panel button, which opens Files on a grid that has shown no pane yet.
 const openPaneOn = async (w: Grid, index: number) => {
-  cells(w)[index].vm.$emit("open-files");
+  cells(w)[index].vm.$emit("toggle-panel");
   await flushPromises();
 };
 
@@ -143,7 +149,7 @@ describe("inserting a tree path into the terminal", () => {
       attachTo: document.body,
     });
     await flushPromises();
-    w.findAllComponents({ name: "CommandCell" })[0].vm.$emit("open-files");
+    w.findAllComponents({ name: "CommandCell" })[0].vm.$emit("toggle-panel");
     await flushPromises();
 
     expect(pane(w).props("insertTarget")).toBe(false);

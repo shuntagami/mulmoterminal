@@ -27,6 +27,7 @@ export type SettingsTabId =
   | "models"
   | "mcp"
   | "sounds"
+  | "phone"
   | "push"
   | "quickCommands"
   | "github"
@@ -51,7 +52,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   { key: "launch", tabs: ["launchers", "headerChrome"] },
   { key: "input", tabs: ["terminalKeys", "shortcuts", "voice"] },
   { key: "models", tabs: ["models", "mcp"] },
-  { key: "notifications", tabs: ["sounds", "push", "quickCommands"] },
+  { key: "notifications", tabs: ["sounds", "phone", "push", "quickCommands"] },
   { key: "integrations", tabs: ["github", "prRepos", "google"] },
   { key: "sessions", tabs: ["sessions", "surviving", "cost", "quit"] },
   { key: "help", tabs: ["help"] },

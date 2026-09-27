@@ -21,8 +21,6 @@ const props = defineProps<
     launcher: CellLauncher;
     session: string | null;
     cwd: string | null;
-    // Manual sort mode: show move buttons to swap this cell with its neighbour.
-    reorderable?: boolean;
   }
 >();
 const emit = defineEmits<
@@ -58,10 +56,8 @@ function relaunch() {
 <template>
   <CellShell
     :expanded="expanded"
-    :files-open="filesOpen"
+    :tile="!zoomed"
     :right-pane="rightPane"
-    :canvas-available="canvasAvailable"
-    :collections-available="collectionsAvailable"
     :home="home"
     :cwd="cwd"
     :default-cwd="defaultCwd"
@@ -69,9 +65,9 @@ function relaunch() {
     idle-title="Exited"
     icon="rocket_launch"
     :label="launcher.label"
-    move-noun="launcher"
-    :reorderable="reorderable"
     v-on="shellEvents"
+    @drag-handle="(event: DragEvent) => emit('drag-handle', event)"
+    @drag-end="emit('drag-end')"
   >
     <template #actions>
       <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">

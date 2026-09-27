@@ -47,6 +47,7 @@ export const ja: Messages = {
       sounds: "通知音",
       push: "Web Push 通知",
       quickCommands: "スマホの定型文",
+      phone: "スマホ連携",
       github: "GitHub と GitLab",
       prRepos: "プルリクエストのリポジトリ",
       google: "Google アカウント",
@@ -86,6 +87,8 @@ export const ja: Messages = {
         zoomPrev: "前のターミナルを拡大",
         focusNext: "次のターミナルへカーソルを移す（グリッド表示のみ）",
         focusPrev: "前のターミナルへカーソルを移す（グリッド表示のみ）",
+        cellMovePrev: "このターミナルを前へ移動する",
+        cellMoveNext: "このターミナルを後ろへ移動する",
         nextAttention: "あなたを待っているターミナルへ移動",
         terminalNew: "起動パネルを開く",
         terminalNewHere: "このターミナルのディレクトリで起動パネルを開く",
@@ -146,7 +149,7 @@ export const ja: Messages = {
 
     sounds: {
       intro:
-        "どの瞬間に鳴らすか、そしてそれぞれ何を鳴らすか。エージェントを何本も同時に動かすと通知はただの雑音になるので、要らないものはチェックを外してください。ツールバーのスピーカーボタンで一括して黙らせられます。",
+        "どの瞬間に鳴らすか、そしてそれぞれ何を鳴らすか。エージェントを何本も同時に動かすと通知はただの雑音になるので、要らないものはチェックを外してください。ツールバーのベルを開いた中の「通知音」スイッチで一括して黙らせられます。",
       beepAria: "セッションが {kind} のときに鳴らす",
       soundFor: "{label} の音",
       playFor: "{label} の音を再生",
@@ -201,6 +204,21 @@ export const ja: Messages = {
         finished: "エージェントが返信し、その出力がまだ読まれていない",
         waiting: "権限の確認や質問で止まった。プロンプトごとに 1 回鳴るので、よく聞いてくるタスクはよくプッシュします",
       },
+    },
+
+    phone: {
+      intro: "スマホからこの MulmoTerminal を操作できます。セッションを見る、待っているエージェントに答える、作業を始める。Web Push もこの接続が前提です。",
+      online: "接続中",
+      reconnecting: "再接続中…",
+      offline: "未接続",
+      signedInAs: "{uid} としてサインイン中",
+      lastError: "直近の接続エラー: {error}",
+      connect: "接続する（Google でサインイン）",
+      connecting: "接続しています…",
+      disconnect: "切断する",
+      disconnecting: "切断しています…",
+      openOnPhone: "同じ Google アカウントでサインインしたスマホで、これを開いてください:",
+      scan: "またはスマホのカメラで、この QR コードを読み取ってください。",
     },
 
     github: {
@@ -412,7 +430,7 @@ export const ja: Messages = {
 
     toolbarPins: {
       intro:
-        "ピン留めしたコレクションやフィードを、ツールバーの Grid / Collections の隣に置けます。Collections を開いて上端の行から探す代わりに、一手で開けます。選べるのは {max} 件まで。1 件も選ばなければツールバーは今までのままです。",
+        "ピン留めしたコレクションやフィードを、ツールバーの「ターミナル」「ワークスペース」の隣に置けます。Collections を開いて上端の行から探す代わりに、一手で開けます。選べるのは {max} 件まで。1 件も選ばなければツールバーは今までのままです。",
       empty: "まだ何もピン留めされていません。先に Collections を開いてコレクションやフィードをピン留めしてください。ここに並ぶのはピン留めしたものです。",
       unavailable:
         "ピン留めの一覧が利用できません（{error}）。そのためここに出せるものがありません。ツールバーは今まで出していたものをそのまま表示します。復旧してから開き直してください。",
@@ -565,6 +583,8 @@ export const ja: Messages = {
       zoomPrev: "拡大を、前のターミナルに移します。",
       focusNext: "並んだグリッドで、カーソルを次のターミナルに移します。",
       focusPrev: "並んだグリッドで、カーソルを前のターミナルに移します。",
+      cellMovePrev: "拡大中のターミナルを並び順で1つ前へ移します。ハンドルのドラッグと同じことをキーボードで行います。並び順は「手動」になります。",
+      cellMoveNext: "拡大中のターミナルを並び順で1つ後ろへ移します。並び順は「手動」になります。",
       nextAttention: "入力待ちのターミナル、次に終わったもの、次に待機中のものへ移ります。",
       terminalNew: "既定のワークスペースで起動パネルを開きます。",
       terminalNewHere: "今のターミナルのディレクトリで起動パネルを開きます。",
@@ -585,14 +605,42 @@ export const ja: Messages = {
       exit: "入力に戻る",
     },
   },
+  toolbar: {
+    sectionsNav: "区画",
+    sections: { terminal: "ターミナル", workspace: "ワークスペース" },
+    screensNav: "画面",
+    screens: {
+      grid: "グリッド",
+      github: "PRs & Issues",
+      rooms: "Rooms",
+      worklog: "Worklog",
+      collections: "Collections",
+      feeds: "Feeds",
+      wiki: "Wiki",
+      accounting: "Accounting",
+      files: "Files",
+    },
+    newTerminal: "新規ターミナル",
+    closeLaunchPanel: "起動パネルを閉じる",
+    status: "全体の状態",
+    sort: {
+      label: "並び順: {mode}",
+      menu: "並び順",
+      modes: { auto: "注目順", manual: "手動", priority: "優先度" },
+      help: { auto: "入力待ちと完了のセルが先に来る", manual: "ドラッグで並べた順", priority: "各ディレクトリの orderPriority の小さい順" },
+    },
+    view: { label: "表示", list: "リスト", strip: "サムネイル" },
+    pages: "ページ",
+    page: "{n} ページ目",
+    phone: { online: "スマホ 接続中", reconnecting: "スマホ 再接続中…", offline: "スマホ 切断", open: "スマホ連携の設定" },
+    sound: { label: "通知音", blocked: "ブラウザが止めています。ページのどこかをクリックすると鳴るようになります" },
+  },
   rowMenu: {
     trigger: "このセルの操作",
     title: "操作",
     markUnread: "未読にする",
     markUnreadHint: "確認待ちの色を付け直す",
     markRead: "既読にする",
-    moveUp: "上へ移動",
-    moveDown: "下へ移動",
     setAside: "脇に置く",
     wake: "起こす",
     close: "閉じる",

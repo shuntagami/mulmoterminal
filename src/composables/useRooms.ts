@@ -8,6 +8,7 @@
 // different callers: the round-table runner is mid-conversation and must not stop because one
 // request dropped, while a person watching a room must not be shown an empty conversation when the
 // truth is "could not read it". One HTTP call site, two policies, neither hidden inside the other.
+import { ref } from "vue";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
@@ -24,6 +25,12 @@ const isRoomMessage = (value: unknown): value is RoomMessage =>
 export type RoomRead = { ok: true; messages: RoomMessage[] } | { ok: false };
 
 const roomPath = (room: string): string => `/api/rooms/${encodeURIComponent(room)}`;
+
+/** Whether any room exists, as far as this tab has seen. The toolbar offers Rooms only once there is
+ *  one: before a round table has run, the screen has nothing to show. Kept by every call here that
+ *  learns the answer — a listing sets it, a post that landed proves a room exists — rather than by
+ *  a poll, so it costs nothing while nobody uses the feature. */
+export const roomsExist = ref(false);
 
 /** Everything said in a room since `since`, or the failure. */
 export async function loadRoom(room: string, since = 0): Promise<RoomRead> {
@@ -43,7 +50,9 @@ export async function listRooms(): Promise<string[]> {
     const res = await fetchWithTimeout("/api/rooms", {}, REQUEST_TIMEOUT_MS);
     if (!res.ok) return [];
     const data = await jsonBody(res);
-    return isUnknownArray(data.rooms) ? data.rooms.filter((name): name is string => typeof name === "string") : [];
+    const rooms = isUnknownArray(data.rooms) ? data.rooms.filter((name): name is string => typeof name === "string") : [];
+    roomsExist.value = rooms.length > 0;
+    return rooms;
   } catch {
     return [];
   }
@@ -58,6 +67,7 @@ export async function sendRoomMessage(room: string, from: string, text: string):
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, text }) },
       REQUEST_TIMEOUT_MS,
     );
+    if (res.ok) roomsExist.value = true;
     return res.ok;
   } catch {
     return false;
@@ -68,6 +78,8 @@ export async function sendRoomMessage(room: string, from: string, text: string):
 export async function deleteRoom(room: string): Promise<boolean> {
   try {
     const res = await fetchWithTimeout(roomPath(room), { method: "DELETE" }, REQUEST_TIMEOUT_MS);
+    // The last one may have gone; the listing is what knows.
+    if (res.ok) void listRooms();
     return res.ok;
   } catch {
     return false;

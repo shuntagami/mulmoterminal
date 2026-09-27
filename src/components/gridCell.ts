@@ -20,7 +20,7 @@ import type { TerminalAgent } from "../../common/sessionAgent";
 // while that guard was its own hand-written list, a pane could be added to the union, wired end to
 // end, and still fail to reopen after a reload — with nothing failing to say so (CodeRabbit,
 // #1749). Adding a member here now reaches the guard by construction.
-export const RIGHT_PANES = ["files", "canvas", "tools", "collections", "github", "question", "prompts", "transcript"] as const;
+export const RIGHT_PANES = ["files", "canvas", "tools", "collections", "question", "prompts", "transcript"] as const;
 
 export type RightPane = (typeof RIGHT_PANES)[number];
 
@@ -31,23 +31,9 @@ export interface GridCellProps {
   // True while SOME cell in the grid is zoomed → this cell is a filmstrip thumbnail
   // (unless it's the zoomed one). Only then does a header-background click zoom it.
   zoomed?: boolean;
-  // Whether the file pane is showing beside the enlarged cell, so its toggle can read as
-  // pressed. Grid state, not the cell's: only the expanded cell renders the toggle.
-  filesOpen?: boolean;
-  // Which of the three side panes is showing, so each toggle can read as pressed without three
-  // booleans that could disagree. Grid state for the same reason filesOpen is.
+  // Which side pane this cell has open, if any — the Panel button reads as pressed from it. Grid
+  // state, not the cell's: the pane is the grid's.
   rightPane?: RightPane | null;
-  // Whether the ENLARGED cell's session has the drawing tools at all — i.e. whether its
-  // directory registered the `render` MCP group. False leaves the Canvas button in place but
-  // DISABLED: the pane would open empty, and a button that explains why beats one that isn't
-  // there to ask about.
-  canvasAvailable?: boolean;
-  // Whether the ENLARGED cell's directory registered the `data` MCP group — the one
-  // manageCollection belongs to. False HIDES the Collections button rather than disabling it:
-  // a directory with no collection tools is not a place where collections are a thing, so there
-  // is nothing for a disabled button to explain. See TerminalGrid's `collectionsOpenable` for
-  // the one case that keeps it visible anyway (the pane is open and this is its only close).
-  collectionsAvailable?: boolean;
   // Drop this cell's expand button. True only while the collection pane is holding it: the pane is
   // an overlay ON TOP of the grid, so the zoom it would set is behind it and the button would look
   // broken (#2001).
@@ -74,27 +60,13 @@ export interface AgentReport {
 }
 
 export interface GridCellEmits {
-  // `open-canvas` and `open-files` come from a control on a cell that may be TILED — the
-  // unread-canvas chip, the path menu — and mean: enlarge me AND open that pane, in one gesture.
-  // Their `toggle-` siblings act on the cell as it is, so pressed on a tile they only record what
-  // that cell should show once it IS enlarged (#1378), which is a different thing to ask for.
-  (
-    e:
-      | "toggle-expand"
-      | "new-here"
-      | "close"
-      | "toggle-files"
-      | "toggle-canvas"
-      | "toggle-tools"
-      | "toggle-collections"
-      | "toggle-github"
-      | "toggle-prompts"
-      | "toggle-transcript"
-      | "open-canvas"
-      | "open-files",
-  ): void;
-  // Swap this cell left (-1) or right (+1) in manual sort mode.
-  (e: "move", dir: -1 | 1): void;
+  // `open-canvas` comes from a control on a cell that may be TILED — the unread-canvas chip — and
+  // means: enlarge me AND open that pane, in one gesture. `toggle-panel` acts on the cell as it is,
+  // so pressed on a tile it only records what that cell should show once it IS enlarged (#1378).
+  (e: "toggle-expand" | "toggle-panel" | "close" | "open-canvas" | "drag-end"): void;
+  // The drag handle at the head of a TILE's header was picked up. The grid owns the reorder, so the
+  // cell only reports it — with the event, which carries the dataTransfer the grid fills in.
+  (e: "drag-handle", event: DragEvent): void;
   // Report activity up so the grid can attention-sort in auto mode.
   (e: "status", value: AttentionStatus): void;
 }

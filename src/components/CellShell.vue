@@ -14,6 +14,7 @@ import { computed, toRef } from "vue";
 import DirBadge from "./DirBadge.vue";
 import DirIcon from "./DirIcon.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import CellDragHandle from "./CellDragHandle.vue";
 import { cellChromeBinding, type CellChromeSource } from "./cellChromeBinding";
 import { useCellChrome } from "../composables/useCellChrome";
 import { formatCwd } from "./cwdDisplay";
@@ -23,7 +24,6 @@ import { textTip } from "./tipContent";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
   CELL_ACTIONS,
-  CELL_BTN,
   CELL_CMD,
   CELL_DIR,
   CELL_DIR_PATH,
@@ -55,29 +55,13 @@ const props = defineProps<
     // Material Symbols name and the text beside it: the cell says what it is running.
     icon: string;
     label: string;
-    // "command" / "launcher", for the reorder buttons' aria-labels. Screen-reader text, so it
-    // names the thing being moved rather than saying "cell" twice.
-    moveNoun: string;
-    reorderable?: boolean;
+    // A tile in the tiled grid, so it carries the drag handle. The enlarged views reorder from the
+    // roster instead.
+    tile?: boolean | undefined;
   }
 >();
 
-const emit = defineEmits<{
-  (
-    e:
-      | "toggle-expand"
-      | "new-here"
-      | "close"
-      | "toggle-files"
-      | "toggle-canvas"
-      | "toggle-tools"
-      | "toggle-collections"
-      | "toggle-github"
-      | "toggle-prompts"
-      | "toggle-transcript",
-  ): void;
-  (e: "move", dir: -1 | 1): void;
-}>();
+const emit = defineEmits<{ (e: "toggle-expand" | "toggle-panel" | "close" | "drag-end"): void; (e: "drag-handle", event: DragEvent): void }>();
 
 const { chromeProps, chromeEvents } = cellChromeBinding(props, emit);
 
@@ -106,6 +90,7 @@ function onHeaderClick(event: MouseEvent) {
     <div :class="CELL_INNER">
       <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" :style="headerStyle" @click="onHeaderClick">
         <!-- Leads the row, ahead of the status dot — the browser-tab position (see TerminalCell). -->
+        <CellDragHandle v-if="tile" @pick="(event) => emit('drag-handle', event)" @end="emit('drag-end')" />
         <DirIcon :src="dirConfig.iconUrl" />
         <span
           class="cell-dot"
@@ -128,14 +113,8 @@ function onHeaderClick(event: MouseEvent) {
           ><span class="material-symbols-outlined" aria-hidden="true">{{ icon }}</span> {{ label }}</span
         >
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" :aria-label="`Move ${moveNoun} left`" @click="emit('move', -1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
-          </button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" :aria-label="`Move ${moveNoun} right`" @click="emit('move', 1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-          </button>
-          <!-- Whatever this particular cell can do, between the reorder buttons and the chrome
-               ones — which is where both callers already had theirs. -->
+          <!-- Whatever this particular cell can do, before the chrome buttons — which is where both
+               callers already had theirs. -->
           <slot name="actions" />
           <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
         </span>

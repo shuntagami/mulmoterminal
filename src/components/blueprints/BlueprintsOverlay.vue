@@ -55,7 +55,7 @@ const folderName = (dir: string): string => dir.split(/[\\/]/).filter(Boolean).a
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-x-0 top-10 bottom-0 z-50 flex flex-col bg-deep" role="region" :aria-label="t('blueprints.title')">
+  <div v-if="isOpen" class="fixed inset-x-0 top-[79px] bottom-0 z-50 flex flex-col bg-deep" role="region" :aria-label="t('blueprints.title')">
     <header class="flex flex-none items-center gap-2.5 border-b border-border bg-panel px-4 py-2">
       <span class="material-symbols-outlined text-[16px] text-secondary" aria-hidden="true">architecture</span>
       <span class="text-[14px] font-[650] text-fg">{{ t("blueprints.title") }}</span>

@@ -33,8 +33,8 @@ const publish = (channel: string, data: unknown) => {
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "rightPane", "canvasAvailable"],
-    emits: ["toggle-expand", "toggle-files", "toggle-canvas", "open-canvas", "toggle-tools", "session", "cwd", "run", "close", "move", "status"],
+    props: ["expanded", "rightPane"],
+    emits: ["toggle-expand", "toggle-panel", "open-canvas", "session", "cwd", "run", "close", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -42,7 +42,7 @@ vi.mock("../../../src/components/CommandCell.vue", () => ({
   default: {
     name: "CommandCell",
     props: ["expanded", "command"],
-    emits: ["toggle-expand", "close", "move", "status"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status"],
     template: '<div class="stub-command-cell" />',
   },
 }));
@@ -50,7 +50,7 @@ vi.mock("../../../src/components/LauncherCell.vue", () => ({
   default: {
     name: "LauncherCell",
     props: ["expanded", "launcher"],
-    emits: ["toggle-expand", "close", "move", "status", "session"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
     template: '<div class="stub-launcher-cell" />',
   },
 }));
@@ -95,6 +95,12 @@ const mountGrid = (cells: Cell[], expandedUid: number | null) =>
 
 const canvasOpen = (w: ReturnType<typeof mount>) => w.findComponent({ name: "GuiPanel" }).exists();
 const drew = { uuid: "u1", toolName: "presentDocument", data: { markdown: "# hi" } };
+// The cell's Panel button: closes the pane the cell has, or opens the one used last — Files, on a
+// grid that has shown none yet.
+const pressPanel = async (w: ReturnType<typeof mount>) => {
+  w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+  await flushPromises();
+};
 
 beforeEach(() => {
   bus.clear();
@@ -165,9 +171,9 @@ describe("the canvas opening itself when the agent draws", () => {
     publish("session:s1", drew);
     await flushPromises();
 
-    // The same toggle the header button drives.
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-canvas");
-    await flushPromises();
+    // The header's Panel button, which puts away whatever pane the cell has open.
+    expect(canvasOpen(w)).toBe(true);
+    await pressPanel(w);
     expect(canvasOpen(w)).toBe(false);
 
     publish("session:s1", { ...drew, uuid: "u3" });
@@ -180,8 +186,7 @@ describe("the canvas opening itself when the agent draws", () => {
   it("flushes the files pane on the way out, and yields to one that refuses", async () => {
     const w = mountGrid([cell(1, "s1")], 1);
     await flushPromises();
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await flushPromises();
+    await pressPanel(w);
     expect(w.find(".stub-files-pane").exists()).toBe(true);
 
     filesStub.flush.mockResolvedValue(false);
@@ -204,8 +209,9 @@ describe("the canvas opening itself when the agent draws", () => {
   it("gives up rather than pulling the zoom back when the user moved it during the flush", async () => {
     const w = mountGrid([cell(1, "s1"), cell(2, "s2")], 1);
     await flushPromises();
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await flushPromises();
+    await pressPanel(w);
+    // Or the save below is never asked for, and the test passes on the files pane's absence.
+    expect(w.find(".stub-files-pane").exists()).toBe(true);
 
     // A save still in flight when the drawing lands.
     let finishFlush: () => void = () => {};
@@ -231,8 +237,7 @@ describe("the canvas opening itself when the agent draws", () => {
   it("drops an un-clicked reveal whose conditions stopped holding during the flush", async () => {
     const w = mountGrid([cell(1, "s1"), cell(2, "s2")], null);
     await flushPromises();
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await flushPromises();
+    await pressPanel(w);
 
     let finishFlush: () => void = () => {};
     filesStub.flush.mockReturnValue(new Promise<undefined>((resolve) => (finishFlush = () => resolve(undefined))));

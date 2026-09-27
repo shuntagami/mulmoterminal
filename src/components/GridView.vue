@@ -30,6 +30,8 @@ import {
   sessionCell,
   launchInCell,
   setSortMode,
+  adoptManualOrder,
+  moveBeside,
   moveCell,
   moveCellBefore,
   moveZoom,
@@ -48,6 +50,8 @@ import {
   resolveCellStatus,
   MAX_TERMINALS,
 } from "./gridTabs";
+import type { SortMode } from "./gridTabs";
+import type { SettingsTabId } from "./settings/settingsTabs";
 import { activityStatus, type AttentionStatus } from "./attentionStatus";
 import { collectionTerminalClaim, publishGridSessions } from "../composables/collectionTerminalClaim";
 import { cellsToDisplay } from "./displayCells";
@@ -70,7 +74,6 @@ import { usePendingScript } from "../composables/usePendingScript";
 import { reportActiveTerminals } from "../composables/useUnloadGuard";
 import { useAppConfig } from "../composables/useAppConfig";
 import { fetchDirConfig, invalidateDirConfig, useDirPriorities } from "../composables/useDirConfig";
-import { nextSortMode } from "./sortModeButton";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { router } from "../router";
 import { usePubSub } from "../composables/usePubSub";
@@ -142,7 +145,6 @@ const sessionStatus = computed(() => {
 const statusForSort = computed<Record<number, AttentionStatus>>(() => resolveCellStatus(state.value.cells, sessionStatus.value, statusByUid));
 // At-a-glance tally across ALL pages, for the toolbar summary.
 const statusCounts = computed(() => countByStatus(state.value.cells, statusForSort.value));
-const reorderable = computed(() => state.value.sortMode === "manual");
 // "priority" ranks cells by their directory's orderPriority, so like the status above it needs
 // a value for cells on pages that aren't mounted — hence the whole cwd set, not per-cell.
 const cellCwds = computed(() => [...new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => !!c))]);
@@ -316,10 +318,10 @@ const syncPoll = () => (rosterVisible() ? startPoll() : stopPoll());
 // immediate: a reload that restores a zoomed grid sets expandedUid up front (no "change"
 // to react to), so start here too, or the roster would freeze at its first snapshot.
 watch(expandedUid, syncPoll, { immediate: true });
-// The header's view toggle (shown only while zoomed) flips roster / thumbnail strip; the poll
+// The header's view switch (shown only while zoomed) picks roster or thumbnail strip; the poll
 // follows since the roster is its sole consumer.
-const toggleListMode = () => {
-  listModeOn.value = !listModeOn.value;
+const setListMode = (on: boolean) => {
+  listModeOn.value = on;
   syncPoll();
 };
 // Follows the ROUTE, not the lifecycle. The grid is the only view now, so it is mounted for the
@@ -407,11 +409,24 @@ const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScrip
 // The empty cell launcher picked a program — a configured launch command, or the OS default
 // shell: turn it into a persistent launcher cell. Its session id arrives later via onSession.
 const onLaunch = (uid: number, pick: LaunchPick) => (state.value = launchInCell(state.value, uid, pick.launcher, pick.cwd));
-const onMove = (uid: number, dir: -1 | 1) => (state.value = moveCell(state.value, uid, dir));
-// The roster's drag handle: an arbitrary slot rather than a step (#2126). Same flat list, so the
-// tiles re-order with it.
-const onMoveBefore = (uid: number, beforeUid: number | null) => (state.value = moveCellBefore(state.value, uid, beforeUid));
-const toggleSortMode = () => (state.value = setSortMode(state.value, nextSortMode(state.value.sortMode)));
+// Reordering is ONE gesture — dragging a cell's handle, in the roster or the tiled grid — plus its
+// keyboard twin, in every order mode: touching the order makes it manual, starting from what is on
+// screen (adoptManualOrder). The step-wise arrows and the roster's up/down menu are gone.
+const onManualOrder = () => (state.value = adoptManualOrder(state.value, orderedCells.value));
+// An arbitrary slot rather than a step (#2126). One flat list: tiles and roster re-order together.
+const onMoveBefore = (uid: number, beforeUid: number | null) =>
+  (state.value = moveCellBefore(adoptManualOrder(state.value, orderedCells.value), uid, beforeUid));
+// A tile dropped beside another; the whole order is here, so "after the last tile on the page" is too.
+const onMoveBeside = (uid: number, target: number, after: boolean) => (state.value = moveBeside(state.value, orderedCells.value, uid, target, after));
+// The keyboard's way to the same thing: one place earlier or later. Answers whether the shortcut was
+// one of the two, so the dispatcher below stays one branch longer rather than two.
+function runMoveShortcut(shortcut: GridShortcut, uid: number | null): boolean {
+  if (shortcut !== "cell-move-prev" && shortcut !== "cell-move-next") return false;
+  if (uid !== null) state.value = moveCell(adoptManualOrder(state.value, orderedCells.value), uid, shortcut === "cell-move-prev" ? -1 : 1);
+  return true;
+}
+// The header's order menu names the mode it wants; nothing cycles through them any more.
+const onSetSortMode = (mode: SortMode) => (state.value = setSortMode(state.value, mode));
 // Switching page BY HAND is the one page change that moves no cursor: the cells leaving the screen
 // unmount, nothing emits focus-cell, and the retained uid goes on naming a terminal nobody can see —
 // so walking from it sent the user straight back to the page they had just left (CodeRabbit on #2120).
@@ -472,8 +487,15 @@ onBeforeUnmount(detachNewTerminal);
 const { defaultCwd, storiesRoots, home, presets, configUnavailable, launchers, customAgents, accounts, loadConfig, recordPreset, removePreset } =
   useAppConfig();
 const showSettings = ref(false);
+// Which section Settings opens on, when whatever opened it knows — the toolbar's phone status opens
+// Phone link. Undefined is the modal's own default.
+const settingsTab = ref<SettingsTabId | undefined>(undefined);
 onMounted(loadConfig);
 
+function openSettings(tab?: SettingsTabId) {
+  settingsTab.value = tab;
+  showSettings.value = true;
+}
 function closeSettings() {
   showSettings.value = false;
 }
@@ -512,6 +534,7 @@ function runShortcut(shortcut: GridShortcut) {
   // a cell calling from another page even though the toolbar counts those. Hence orderUids.
   const order = orderUids.value;
   const uid = expandedUid.value;
+  if (runMoveShortcut(shortcut, uid)) return;
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
   } else if (shortcut === "focus-next" || shortcut === "focus-prev") {
@@ -600,7 +623,7 @@ const launchPanelOpen = ref(false);
 const launchPanelDir = computed(() => (launchPanelOrigin.value === null ? defaultCwd.value : adjacentCwd(launchPanelOrigin.value)));
 const closeLaunchPanel = () => (launchPanelOpen.value = false);
 // Re-pressing the same control closes it, so `+` and the shortcut are both a toggle — the panel
-// covers the right edge of the stage, and a control that can only open it leaves the user hunting
+// covers the left edge of the stage, and a control that can only open it leaves the user hunting
 // for the way back. Opening it on a DIFFERENT cell re-targets rather than closing.
 function toggleLaunchPanel(origin: number | null) {
   if (launchPanelOpen.value && launchPanelOrigin.value === origin) {
@@ -877,28 +900,16 @@ onBeforeUnmount(detachSpawnedChat);
       :add-terminal-active="launchPanelOpen"
       :sort-mode="state.sortMode"
       :status-counts="statusCounts"
-      :show-view-toggle="expandedUid !== null"
+      :zoomed="expandedUid !== null"
       :list-mode="listModeOn"
+      :pages="pages"
+      :page="state.page"
       @add-terminal="onAddTerminal"
-      @toggle-sort="toggleSortMode"
-      @toggle-view="toggleListMode"
-      @settings="showSettings = true"
+      @set-sort-mode="onSetSortMode"
+      @set-list-mode="setListMode"
+      @switch-page="switchTo"
+      @settings="openSettings"
     />
-    <nav
-      v-if="pages > 1 && expandedUid === null"
-      class="flex-none flex items-center gap-1 h-[30px] px-4 bg-panel border-b border-border"
-      aria-label="Grid tabs"
-    >
-      <button
-        v-for="p in pages"
-        :key="p"
-        class="border border-border bg-base text-muted font-mono text-xs min-w-[28px] py-[3px] px-2 rounded-md cursor-pointer hover:bg-hover hover:text-fg aria-pressed:bg-hover aria-pressed:text-fg aria-pressed:border-accent"
-        :aria-pressed="p - 1 === state.page"
-        @click="switchTo(p - 1)"
-      >
-        {{ p }}
-      </button>
-    </nav>
     <TerminalGrid
       ref="gridRef"
       class="flex-1 min-h-0 min-w-0"
@@ -913,7 +924,6 @@ onBeforeUnmount(detachSpawnedChat);
       :custom-agents="customAgents"
       :accounts="accounts"
       :home="home"
-      :reorderable="reorderable"
       :open-session-ids="openSessionIds"
       :open-cwds="openCwds"
       :list-mode="listModeOn"
@@ -926,13 +936,13 @@ onBeforeUnmount(detachSpawnedChat);
       @retry-config="loadConfig"
       @close="onClose"
       @toggle-expand="onToggleExpand"
-      @new-here="toggleLaunchPanel"
       @focus-cell="focusedCellUid = $event"
       @run="onRun"
       @run-spare="onRunSpare"
       @launch="onLaunch"
-      @move="onMove"
+      @manual-order="onManualOrder"
       @move-before="onMoveBefore"
+      @move-beside="onMoveBeside"
       @status="onStatus"
     />
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
@@ -958,7 +968,7 @@ onBeforeUnmount(detachSpawnedChat);
       @retry-config="loadConfig"
       @close="closeLaunchPanel"
     />
-    <AppSettingsModal v-if="showSettings" :presets="presets" @launch-skill="launchSkill" @close="closeSettings" />
+    <AppSettingsModal v-if="showSettings" :presets="presets" :initial-tab="settingsTab" @launch-skill="launchSkill" @close="closeSettings" />
     <PrefixKeyHint :pending="keys.pending.value" />
   </div>
 </template>

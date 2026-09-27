@@ -18,6 +18,8 @@ export const KEYMAP_ACTIONS = [
   "zoom-prev",
   "focus-next",
   "focus-prev",
+  "cell-move-prev",
+  "cell-move-next",
   "next-attention",
   "terminal-new",
   "terminal-new-here",
@@ -60,6 +62,8 @@ export const TERMINAL_SCOPED_ACTIONS: readonly KeymapAction[] = ["copy", "paste"
 export const NEEDS_A_CURRENT_TERMINAL: readonly KeymapAction[] = [
   "zoom-next",
   "zoom-prev",
+  "cell-move-prev",
+  "cell-move-next",
   "terminal-new-adjacent",
   "terminal-close",
   "terminal-restart",

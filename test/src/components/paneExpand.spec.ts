@@ -20,29 +20,21 @@ vi.mock("../../../src/composables/usePubSub", () => ({
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "rightPane", "canvasAvailable"],
-    emits: [
-      "toggle-expand",
-      "toggle-files",
-      "toggle-canvas",
-      "open-canvas",
-      "toggle-tools",
-      "toggle-transcript",
-      "session",
-      "cwd",
-      "run",
-      "close",
-      "move",
-      "status",
-    ],
+    props: ["expanded", "rightPane"],
+    emits: ["toggle-expand", "toggle-panel", "open-canvas", "session", "cwd", "run", "close", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
 vi.mock("../../../src/components/CommandCell.vue", () => ({
-  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "close", "move", "status"], template: "<div />" },
+  default: { name: "CommandCell", props: ["expanded", "command"], emits: ["toggle-expand", "toggle-panel", "close", "status"], template: "<div />" },
 }));
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
-  default: { name: "LauncherCell", props: ["expanded", "launcher"], emits: ["toggle-expand", "close", "move", "status", "session"], template: "<div />" },
+  default: {
+    name: "LauncherCell",
+    props: ["expanded", "launcher"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
+    template: "<div />",
+  },
 }));
 // The real toolbars are exercised in GuiPanelExpand.spec.ts / ToolsPaneExpand.spec.ts; here both
 // panes are stubs that re-emit, so this file tests the grid's layout response, not their markup.
@@ -101,13 +93,24 @@ const mountGrid = (listMode = true) =>
 type Grid = ReturnType<typeof mountGrid>;
 type PaneName = "GuiPanel" | "ToolsPane" | "TranscriptPane";
 const pane = (w: Grid, name: PaneName = "GuiPanel") => w.findComponent({ name });
-// The cell's buttons TOGGLE, and which pane is showing is remembered in localStorage — so a
-// second mount in the same test may already have one open and a blind toggle would close it.
+// The width and the full-width flex are the side-pane COLUMN's; every pane under it just fills.
+const sidePane = (w: Grid) => w.get('[data-testid="side-pane"]');
+const TAB: Record<PaneName | "FilesPane", string> = { GuiPanel: "canvas", ToolsPane: "tools", TranscriptPane: "transcript", FilesPane: "files" };
+// A tab switches the pane on screen; it never closes one.
+const pickTab = async (w: Grid, name: PaneName | "FilesPane") => {
+  await w.get(`[data-testid="side-pane-tab-${TAB[name]}"]`).trigger("click");
+  await flushPromises();
+};
+// The Panel button TOGGLES, and which pane is showing is remembered in localStorage — so a second
+// mount in the same test may already have one open, and a blind press would close it. With none up
+// it opens the pane used last (Files, on a grid that has shown none), and the tab goes from there.
 const open = async (w: Grid, name: PaneName = "GuiPanel") => {
   if (pane(w, name).exists()) return;
-  const events: Record<PaneName, string> = { GuiPanel: "toggle-canvas", ToolsPane: "toggle-tools", TranscriptPane: "toggle-transcript" };
-  w.findComponent({ name: "TerminalCell" }).vm.$emit(events[name]);
-  await flushPromises();
+  if (!w.find('[data-testid="side-pane"]').exists()) {
+    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+  }
+  if (!pane(w, name).exists()) await pickTab(w, name);
 };
 const clickExpand = async (w: Grid, name: PaneName = "GuiPanel") => {
   pane(w, name).vm.$emit("toggleExpand");
@@ -128,24 +131,28 @@ describe("expanding a pane over the terminal", () => {
     const w = mountGrid();
     await open(w);
     expect(pane(w).props("expanded")).toBe(false);
-    expect(pane(w).attributes("style")).toContain("flex: 0 0 480px");
+    expect(sidePane(w).attributes("style")).toContain("flex: 0 0 480px");
     expect(w.find('[aria-label="Resize side pane"]').exists()).toBe(true);
 
     await clickExpand(w);
     expect(pane(w).props("expanded")).toBe(true);
-    expect(pane(w).attributes("style")).toContain("flex: 1 1 0%");
+    expect(sidePane(w).attributes("style")).toContain("flex: 1 1 0%");
     // The separator divides two things. With the terminal gone there is nothing to drag.
     expect(w.find('[aria-label="Resize side pane"]').exists()).toBe(false);
   });
 
-  // The tools pane sets its own w-[340px], which would otherwise outlive the layout.
+  // The tools pane sets its own w-[340px], which would otherwise outlive the layout. The column it
+  // sits in now owns the width in both states, so the override is on for good rather than only
+  // while full — a fixed-width pane inside a 480px column would leave a gap as surely as it
+  // overflowed a full one.
   it("does the same for the tools pane, width class and all", async () => {
     const w = mountGrid();
     await open(w, "ToolsPane");
+    expect(pane(w, "ToolsPane").classes()).toContain("!w-auto");
     await clickExpand(w, "ToolsPane");
     expect(pane(w, "ToolsPane").props("expanded")).toBe(true);
-    expect(pane(w, "ToolsPane").attributes("style")).toContain("flex: 1 1 0%");
-    expect(pane(w, "ToolsPane").attributes("style")).toContain("width: auto");
+    expect(sidePane(w).attributes("style")).toContain("flex: 1 1 0%");
+    expect(pane(w, "ToolsPane").classes()).toContain("!w-auto");
     expect(w.find('[aria-label="Resize side pane"]').exists()).toBe(false);
   });
 
@@ -180,7 +187,7 @@ describe("expanding a pane over the terminal", () => {
     await clickExpand(w);
     await clickExpand(w);
     expect(pane(w).props("expanded")).toBe(false);
-    expect(pane(w).attributes("style")).toContain("flex: 0 0 480px");
+    expect(sidePane(w).attributes("style")).toContain("flex: 0 0 480px");
     expect(w.find('[aria-label="Resize side pane"]').exists()).toBe(true);
   });
 
@@ -219,7 +226,7 @@ describe("expanding a pane over the terminal", () => {
           ?.match(/flex-basis: (\d+)px/)?.[1],
       );
       const paneW = Number(
-        pane(w)
+        sidePane(w)
           .attributes("style")
           ?.match(/flex: 0 0 (\d+)px/)?.[1],
       );
@@ -254,7 +261,7 @@ describe("the takeover is not remembered", () => {
 
     await open(w);
     expect(pane(w).props("expanded")).toBe(false);
-    expect(pane(w).attributes("style")).toContain("flex: 0 0 480px");
+    expect(sidePane(w).attributes("style")).toContain("flex: 0 0 480px");
   });
 
   it("does not follow a switch to another pane, or come back with the first one", async () => {
@@ -262,9 +269,9 @@ describe("the takeover is not remembered", () => {
     await open(w);
     await clickExpand(w);
 
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await flushPromises();
-    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("flex: 0 0 480px");
+    await pickTab(w, "FilesPane");
+    expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(true);
+    expect(sidePane(w).attributes("style")).toContain("flex: 0 0 480px");
     expect(w.find(".zoom-row").classes()).not.toContain("pane-full");
 
     await open(w);
@@ -292,8 +299,7 @@ describe("the takeover is not remembered", () => {
   it("does not hand the row to the pane opened AFTER the conversation", async () => {
     const w = mountGrid();
     await open(w, "TranscriptPane");
-    w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-tools");
-    await flushPromises();
+    await pickTab(w, "ToolsPane");
     expect(pane(w, "ToolsPane").props("expanded")).toBe(false);
     expect(w.find(".zoom-row").classes()).not.toContain("pane-full");
   });
@@ -307,7 +313,7 @@ describe("the takeover is not remembered", () => {
     await clickExpand(w);
     expect(pane(w).props("expanded")).toBe(true);
 
-    w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-files");
+    w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-panel");
     await flushPromises();
     expect(pane(w).props("expanded")).toBe(true);
     expect(w.find(".zoom-row").classes()).toContain("pane-full");
@@ -318,11 +324,12 @@ describe("the takeover is not remembered", () => {
   //
   // Both cells are given a pane of their own, because since #1378 that is what decides whether
   // there is one to come back to: a cell that never asked for one arrives with nothing, and this
-  // is about the takeover rather than about which cell has a pane.
+  // is about the takeover rather than about which cell has a pane. Cell 2's Panel button records
+  // the Canvas, the pane last used.
   it("does not survive collapsing the zoom", async () => {
     const w = mountGrid();
     await open(w);
-    w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-canvas");
+    w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-panel");
     await flushPromises();
     await clickExpand(w);
 

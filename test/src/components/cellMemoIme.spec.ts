@@ -12,11 +12,12 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({ subscribe: () => () => {}, onReconnect: () => () => {} }),
 }));
 
+// No slots: the note is started from the cell's own ⋮ menu on row 1, not from the terminal's header.
 vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader"],
-    template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-actions" /></div>',
+    template: '<div class="stub-term" />',
   },
 }));
 
@@ -55,9 +56,13 @@ function mountCell() {
   });
 }
 
-/** Open the note editor and put `text` in it, as the user typing would. */
+/** Open the note editor and put `text` in it, as the user typing would. The editor is reached
+ *  through the cell's ⋮ menu, whose panel is teleported to <body> — so the item is found there. */
 async function openMemo(w: ReturnType<typeof mountCell>, text: string) {
-  await w.find('[data-testid="cell-memo-edit"]').trigger("click");
+  await w.find('[data-testid="cell-menu"]').trigger("click");
+  const note = document.body.querySelector<HTMLElement>('[data-testid="cell-menu-note"]');
+  if (!note) throw new Error("no note item in the cell menu");
+  note.click();
   await flushPromises();
   const input = w.find('[data-testid="cell-memo-input"]');
   await input.setValue(text);
