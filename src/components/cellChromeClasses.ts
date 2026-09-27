@@ -84,10 +84,10 @@ export const CELL_CHIP_ICON = "material-symbols-outlined text-[13px]";
 export const CELL_MENU_ITEM =
   "cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg";
 
-// The header button whose pane is CURRENTLY OPEN. Files, Canvas and Tools share one slot beside
-// the enlarged terminal, so exactly one of them can be in this state — and which one has to be
-// readable without moving the pointer. Idle chrome differs from hover by a background alone,
-// which says nothing once the cursor is elsewhere, so this fills AND recolours the ink.
+// A header button that is ON: the Panel button while this cell has a side pane open, the ⋮ while
+// its menu is. Which state it is in has to be readable without moving the pointer. Idle chrome
+// differs from hover by a background alone, which says nothing once the cursor is elsewhere, so
+// this fills AND recolours the ink.
 //
 // The same --bg-selected the rest of the app marks a selection with, rather than a colour of its
 // own: a header button is not a new kind of selected thing. Note it is not `--cell-btn`-tinted —

@@ -148,18 +148,22 @@ describe("resolveButtonCommand", () => {
 
 describe("resolveHeader defaults + pickFile", () => {
   it("falls back to DEFAULT_BUTTONS when buttons is null (unconfigured)", () => {
-    // ctx() is a git repo with no open PR: the picker resolves, pr is dropped (no PR url). The
-    // directory buttons this used to list are path-menu items now, not header buttons.
+    // The directory buttons this used to list are path-menu items now, and the branch's PR is the
+    // work chip's — the picker is what is left.
     const out = resolveHeader({ buttons: null, chips: null }, ctx());
     expect(out.buttons.map((b) => b.id)).toEqual(["pick-file"]);
     expect(out.buttons.find((b) => b.id === "pick-file")?.open).toEqual({ pickFile: true });
   });
 
-  it("drops the default pr button outside a git repo and shows it (as its PR url) when a PR exists", () => {
-    const nonGit = resolveHeader({ buttons: null, chips: null }, ctx({ isGitRepo: false, repo: null }));
-    expect(nonGit.buttons.map((b) => b.id)).toEqual(["pick-file"]);
+  // No longer a default, but still a button a user can list — the one the old default was.
+  it("drops a configured pr button outside a git repo and shows it (as its PR url) when a PR exists", () => {
+    const pr: HeaderConfig = {
+      buttons: [{ id: "pr", icon: "merge", label: "Open this branch's PR", run: "open", when: "isGitRepo", open: { pr: true } }],
+      chips: null,
+    };
+    expect(resolveHeader(pr, ctx({ isGitRepo: false, repo: null })).buttons).toEqual([]);
     // Git repo WITH an open PR: the pr button resolves to the branch's PR url.
-    const withPr = resolveHeader({ buttons: null, chips: null }, ctx({ prUrl: "https://github.com/receptron/mulmoterminal/pull/9" }));
+    const withPr = resolveHeader(pr, ctx({ prUrl: "https://github.com/receptron/mulmoterminal/pull/9" }));
     expect(withPr.buttons.find((b) => b.id === "pr")?.open).toEqual({ url: "https://github.com/receptron/mulmoterminal/pull/9" });
   });
 
@@ -206,8 +210,9 @@ describe("headerHasPrButton", () => {
     expect(headerHasPrButton({ buttons: [{ id: "u", label: "U", run: "open", open: { url: "https://x" } }], chips: null })).toBe(false);
     expect(headerHasPrButton({ buttons: [], chips: null })).toBe(false);
   });
-  it("checks DEFAULT_BUTTONS when unconfigured (they include a pr button)", () => {
-    expect(headerHasPrButton({ buttons: null, chips: null })).toBe(true);
+  // Unconfigured means the defaults, and they carry no pr button — so no PR lookup either.
+  it("checks DEFAULT_BUTTONS when unconfigured (they carry no pr button)", () => {
+    expect(headerHasPrButton({ buttons: null, chips: null })).toBe(false);
   });
 });
 

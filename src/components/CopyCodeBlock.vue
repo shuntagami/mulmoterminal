@@ -25,7 +25,14 @@ import type { TerminalAgent } from "../../common/sessionAgent";
 // rather than left to inheritance, which also means a second root can be added back safely.
 defineOptions({ inheritAttrs: false });
 
-const props = defineProps<{ sessionId: string; cwd: string | null; agent: TerminalAgent }>();
+const props = defineProps<{
+  sessionId: string;
+  cwd: string | null;
+  agent: TerminalAgent;
+  // No button: something else offers the action (the cell's ⋮ menu) and calls `copyLastBlock`.
+  // Still mounted for the "Copied" note and the manual-copy dialog, which are this component's.
+  headless?: boolean;
+}>();
 
 const busy = ref(false);
 const note = ref<string | null>(null);
@@ -93,11 +100,13 @@ function closeManual(): void {
   manual.value = null;
   document.removeEventListener("keydown", onKeydown);
 }
+defineExpose({ copyLastBlock });
 </script>
 
 <template>
   <span class="relative inline-flex">
     <button
+      v-if="!headless"
       v-bind="$attrs"
       type="button"
       class="cell-btn"

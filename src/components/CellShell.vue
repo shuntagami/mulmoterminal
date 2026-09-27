@@ -23,7 +23,6 @@ import { textTip } from "./tipContent";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
   CELL_ACTIONS,
-  CELL_BTN,
   CELL_CMD,
   CELL_DIR,
   CELL_DIR_PATH,
@@ -55,29 +54,10 @@ const props = defineProps<
     // Material Symbols name and the text beside it: the cell says what it is running.
     icon: string;
     label: string;
-    // "command" / "launcher", for the reorder buttons' aria-labels. Screen-reader text, so it
-    // names the thing being moved rather than saying "cell" twice.
-    moveNoun: string;
-    reorderable?: boolean;
   }
 >();
 
-const emit = defineEmits<{
-  (
-    e:
-      | "toggle-expand"
-      | "new-here"
-      | "close"
-      | "toggle-files"
-      | "toggle-canvas"
-      | "toggle-tools"
-      | "toggle-collections"
-      | "toggle-github"
-      | "toggle-prompts"
-      | "toggle-transcript",
-  ): void;
-  (e: "move", dir: -1 | 1): void;
-}>();
+const emit = defineEmits<{ (e: "toggle-expand" | "toggle-panel" | "close"): void }>();
 
 const { chromeProps, chromeEvents } = cellChromeBinding(props, emit);
 
@@ -128,14 +108,8 @@ function onHeaderClick(event: MouseEvent) {
           ><span class="material-symbols-outlined" aria-hidden="true">{{ icon }}</span> {{ label }}</span
         >
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" :aria-label="`Move ${moveNoun} left`" @click="emit('move', -1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
-          </button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" :aria-label="`Move ${moveNoun} right`" @click="emit('move', 1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-          </button>
-          <!-- Whatever this particular cell can do, between the reorder buttons and the chrome
-               ones — which is where both callers already had theirs. -->
+          <!-- Whatever this particular cell can do, before the chrome buttons — which is where both
+               callers already had theirs. -->
           <slot name="actions" />
           <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
         </span>

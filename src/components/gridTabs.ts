@@ -452,6 +452,17 @@ export function setSortMode(state: GridState, sortMode: SortMode): GridState {
   return { ...state, sortMode };
 }
 
+// Reordering is a drag (or its keyboard twin) in EVERY order mode, and it makes the order manual.
+// Under "auto" or "priority" the screen shows the SORTED list while `cells` still holds the last
+// hand arrangement — so going manual has to adopt what is on screen first, or the cells would jump
+// back to an order the user has not seen for a while the moment they touch one. `displayed` is the
+// whole ordered list (orderCells over every page), never one page of it.
+export function adoptManualOrder(state: GridState, displayed: readonly Cell[]): GridState {
+  if (state.sortMode === "manual") return state;
+  const same = displayed.length === state.cells.length && displayed.every((c) => state.cells.includes(c));
+  return { ...state, sortMode: "manual", cells: same ? displayed.slice() : state.cells };
+}
+
 // Whether moveCell would actually reorder: not off either end, and never swapping a cell past
 // the trailing launch cell (it stays last so "+ Terminal"/cancel keep working on it). Drives the
 // enabled/disabled state of the roster's up/down menu items.

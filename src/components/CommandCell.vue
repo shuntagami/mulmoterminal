@@ -25,8 +25,6 @@ const SUMMARY_CLOSE_BTN = `${CELL_BTN_BOX} h-[22px] w-[22px] text-[13px] ${CELL_
 const props = defineProps<
   GridCellProps & {
     command: RunCommand;
-    // Manual sort mode: show move buttons to swap this cell with its neighbour.
-    reorderable?: boolean;
   }
 >();
 const emit = defineEmits<GridCellEmits>();
@@ -133,10 +131,7 @@ function copyPrompt() {
 <template>
   <CellShell
     :expanded="expanded"
-    :files-open="filesOpen"
     :right-pane="rightPane"
-    :canvas-available="canvasAvailable"
-    :collections-available="collectionsAvailable"
     :home="home"
     :cwd="command.cwd"
     :default-cwd="defaultCwd"
@@ -144,8 +139,6 @@ function copyPrompt() {
     idle-title="Finished"
     icon="play_arrow"
     :label="command.label"
-    move-noun="command"
-    :reorderable="reorderable"
     v-on="shellEvents"
   >
     <template #actions>

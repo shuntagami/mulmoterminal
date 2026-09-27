@@ -36,9 +36,7 @@ export interface HeaderConfig {
 }
 
 // The header's action buttons when the user hasn't configured `buttons` — a starter set, each an
-// ordinary config button so the user can drop/reorder/replace them. `pr` is gated to git repos
-// (`when: isGitRepo`) and dropped when the branch has no open PR, so it self-hides where it does
-// not apply.
+// ordinary config button so the user can drop/reorder/replace them.
 //
 // Deliberately short. `reveal` / `files` / `terminal` / `gh` used to be here and are now items in
 // the PATH MENU a session cell puts on its terminal header (TerminalCell's `header-lead`): all four
@@ -46,17 +44,18 @@ export interface HeaderConfig {
 // asks, and `reveal` was the literal duplicate — clicking the path already revealed the folder. Four
 // always-visible icons for four occasional navigations was the wrong trade in a tiled cell.
 //
-// What is left is what a menu would make worse: `pick-file` types into the prompt (an edit, not a
-// navigation — it does not belong in a menu about a location), and `pr` self-hides unless the branch
-// has an open PR, so it is never noise and is one click exactly when it is wanted.
+// `pr` (open this branch's PR) left the defaults for the same reason: the cell's work chip already
+// names the branch's PR and opens it (WorkItemChip), so the button was a second way to the same
+// place, drawn with the same `merge` glyph as the GitHub pane beside it. It is still a button a user
+// can list; it is just not one everybody gets.
+//
+// What is left is what a menu would make worse: `pick-file` types into the prompt — an edit, not a
+// navigation — so it does not belong in a menu about a location.
 //
 // Listing `buttons` at any level still REPLACES this whole set (it is NOT merged), and the path menu
 // is fixed — so a user who lists `reveal` themselves gets both. That is their own explicit choice and
 // it is visible; it is not worth a second config surface to prevent.
-export const DEFAULT_BUTTONS: HeaderButton[] = [
-  { id: "pick-file", icon: "attach_file", label: "Insert a file path", run: "open", open: { pickFile: true } },
-  { id: "pr", icon: "merge", label: "Open this branch's PR", run: "open", when: "isGitRepo", open: { pr: true } },
-];
+export const DEFAULT_BUTTONS: HeaderButton[] = [{ id: "pick-file", icon: "attach_file", label: "Insert a file path", run: "open", open: { pickFile: true } }];
 
 // The live context a header is resolved against — all trusted server-side session state.
 export interface HeaderContext {

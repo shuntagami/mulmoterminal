@@ -51,6 +51,15 @@ function mountCell(props: { parked?: boolean; expanded?: boolean; zoomed?: boole
 const innerClasses = (w: ReturnType<typeof mount>) => w.find(".cell-inner").classes();
 const dotClasses = (w: ReturnType<typeof mount>) => w.find(".cell-dot").classes();
 
+// Park is an item of the cell's ⋮ menu. The panel is teleported to <body>, so it is read there.
+const menuItems = () => [...document.body.querySelectorAll('[data-testid="cell-menu-panel"] [role="menuitem"]')];
+async function openMenu(w: ReturnType<typeof mount>) {
+  await w.find('[data-testid="cell-menu"]').trigger("click");
+  const park = document.body.querySelector<HTMLElement>('[data-testid="cell-menu-park"]');
+  if (!park) throw new Error("no park item in the cell menu");
+  return park;
+}
+
 beforeEach(() => seed({}));
 
 describe("TerminalCell parking", () => {
@@ -142,14 +151,34 @@ describe("TerminalCell parking", () => {
     expect(w.emitted("park")).toBeUndefined();
   });
 
+  // The item says which way it goes, in words: the icon alone (`bedtime`) could not be read without
+  // hovering, which is why it left the header for the ⋮ menu.
   it("asks the grid to park, and to wake once parked", async () => {
     const w = mountCell();
     await flushPromises();
-    await w.find('[data-testid="cell-park-btn"]').trigger("click");
+    const park = await openMenu(w);
+    expect(park.textContent).toContain("Set aside");
+    expect(park.textContent).toContain("Stays open and keeps its history");
+    park.click();
     expect(w.emitted("park")?.[0]).toEqual([true]);
 
     await w.setProps({ parked: true });
-    await w.find('[data-testid="cell-park-btn"]').trigger("click");
+    const wake = await openMenu(w);
+    expect(wake.textContent).toContain("Wake this terminal");
+    wake.click();
     expect(w.emitted("park")?.[1]).toEqual([false]);
+  });
+
+  // A thumbnail is where a parked cell is most likely to be seen, so it can be set aside or woken
+  // from there too — and nothing else: the thumbnail has no note field, and the session's actions
+  // hang off a header it does not show.
+  it("offers park, and only park, from a filmstrip thumbnail's menu", async () => {
+    const w = mountCell({ zoomed: true });
+    await flushPromises();
+    expect(w.find('[data-testid="cockpit-header"]').exists()).toBe(true);
+    const park = await openMenu(w);
+    expect(menuItems().map((b) => b.getAttribute("data-testid"))).toEqual(["cell-menu-park"]);
+    park.click();
+    expect(w.emitted("park")?.[0]).toEqual([true]);
   });
 });

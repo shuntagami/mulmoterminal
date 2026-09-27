@@ -74,9 +74,12 @@ reorder them is to **list the ones you want** — there is no "remove" syntax.
 | id | Label | What it does |
 |---|---|---|
 | `pick-file` | Insert a file path | OS file dialog; inserts the chosen path(s) into the session |
-| `pr` | Open this branch's PR | Git repos only; **hidden when the branch has no open PR** |
 
-Dropping just one means writing the other.
+`pr` (Open this branch's PR) used to be a default too. It left the set because the cell's work chip
+(`#977 → #966`) already opens the branch's PR; it is still an ordinary button — `{ "id": "pr",
+"icon": "merge", "label": "Open this branch's PR", "run": "open", "when": "isGitRepo", "open":
+{ "pr": true } }` — for anyone who wants it back. Git repos only, and hidden when the branch has no
+open PR.
 
 ### The four that are no longer buttons
 
@@ -227,8 +230,7 @@ default configuration, useful as the starting point for adding to or trimming:
 ```json
 {
   "buttons": [
-    { "id": "pick-file", "icon": "attach_file", "label": "Insert a file path", "run": "open", "open": { "pickFile": true } },
-    { "id": "pr", "icon": "merge", "label": "Open this branch's PR", "run": "open", "when": "isGitRepo", "open": { "pr": true } }
+    { "id": "pick-file", "icon": "attach_file", "label": "Insert a file path", "run": "open", "open": { "pickFile": true } }
   ]
 }
 ```

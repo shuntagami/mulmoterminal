@@ -12,6 +12,8 @@ const LABEL_KEYS: Record<KeymapAction, string> = {
   "zoom-prev": "settings.shortcuts.actions.zoomPrev",
   "focus-next": "settings.shortcuts.actions.focusNext",
   "focus-prev": "settings.shortcuts.actions.focusPrev",
+  "cell-move-prev": "settings.shortcuts.actions.cellMovePrev",
+  "cell-move-next": "settings.shortcuts.actions.cellMoveNext",
   "next-attention": "settings.shortcuts.actions.nextAttention",
   "terminal-new": "settings.shortcuts.actions.terminalNew",
   "terminal-new-here": "settings.shortcuts.actions.terminalNewHere",

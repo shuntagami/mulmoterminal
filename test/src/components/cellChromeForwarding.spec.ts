@@ -17,39 +17,39 @@ import { cellChromeBinding, cellShellEvents, type CellChromeEvent } from "../../
 // second silent dead button.
 const declaredEmits = (CellChromeButtons as unknown as { emits?: string[] }).emits ?? [];
 
-// Events a CELL binds itself rather than through the shared object, with the reason. `toggle-park`
-// exists only on a session terminal (the command and launcher cells never render the button), so
-// TerminalCell wires it explicitly beside `v-on="chromeEvents"`.
-const SELF_BOUND = new Set(["toggle-park"]);
-
-const forwarded = (keys: string[]): Set<string> => new Set([...keys, ...SELF_BOUND]);
+// Every event the buttons raise goes through the shared object: none is bound by a cell itself.
+// Setting a terminal aside used to be the exception (`toggle-park`, wired beside the object on
+// TerminalCell alone); it is an item in that cell's own ⋮ menu now, which the chrome only hosts
+// in its slot and whose events are the cell's, not the chrome's.
 
 describe("cellChromeBinding forwards every event the chrome buttons can raise", () => {
   it("declares emits at runtime, so this spec is comparing against something real", () => {
     // Guards the derivation itself: if the SFC compiler stopped emitting the array, every
     // assertion below would pass vacuously against an empty list.
-    expect(declaredEmits).toContain("toggle-collections");
-    expect(declaredEmits.length).toBeGreaterThan(5);
+    expect(declaredEmits).toContain("toggle-panel");
+    expect(declaredEmits.length).toBeGreaterThanOrEqual(3);
   });
 
   it("maps each one in chromeEvents — the binding TerminalCell and CellShell use", () => {
     const { chromeEvents } = cellChromeBinding({ expanded: true }, () => {});
-    expect(forwarded(Object.keys(chromeEvents))).toEqual(new Set(declaredEmits));
+    expect(new Set(Object.keys(chromeEvents))).toEqual(new Set(declaredEmits));
   });
 
   it("maps each one in cellShellEvents — the binding the command and launcher cells use", () => {
-    const events = cellShellEvents(() => {});
-    // `move` is the shell's own, not a chrome button's, so it is the one extra key here.
-    expect(forwarded(Object.keys(events).filter((key) => key !== "move"))).toEqual(new Set(declaredEmits));
+    // Exactly the chrome's set, with nothing of the shell's own beside it: the reorder arrows, and
+    // the `move` they raised, have left the header.
+    expect(new Set(Object.keys(cellShellEvents(() => {})))).toEqual(new Set(declaredEmits));
   });
 
   it("re-emits each event under its OWN name rather than a near-miss", () => {
     const emit = vi.fn();
-    const { chromeEvents } = cellChromeBinding({ expanded: true }, emit);
-    for (const [name, handler] of Object.entries(chromeEvents)) {
-      emit.mockClear();
-      handler();
-      expect(emit).toHaveBeenCalledWith(name as CellChromeEvent);
+    const bindings = [cellChromeBinding({ expanded: true }, emit).chromeEvents, cellShellEvents(emit)];
+    for (const events of bindings) {
+      for (const [name, handler] of Object.entries(events)) {
+        emit.mockClear();
+        handler();
+        expect(emit).toHaveBeenCalledWith(name as CellChromeEvent);
+      }
     }
   });
 

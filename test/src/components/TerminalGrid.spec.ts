@@ -29,8 +29,8 @@ vi.mock("../../../src/components/FilesPane.vue", () => ({
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "reorderable", "canvasAvailable"],
-    emits: ["toggle-expand", "toggle-files", "toggle-prompts", "session", "cwd", "run", "close", "move", "status", "canvas"],
+    props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "rightPane"],
+    emits: ["toggle-expand", "toggle-panel", "session", "cwd", "run", "close", "status", "canvas"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -53,18 +53,23 @@ vi.mock("../../../src/components/PromptsPane.vue", () => ({
 vi.mock("../../../src/components/CommandCell.vue", () => ({
   default: {
     name: "CommandCell",
-    props: ["expanded", "command", "home", "reorderable"],
-    emits: ["toggle-expand", "close", "move", "status"],
+    props: ["expanded", "command", "home"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status"],
     template: '<div class="stub-command-cell" />',
   },
 }));
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
   default: {
     name: "LauncherCell",
-    props: ["uid", "expanded", "launcher", "session", "cwd", "home", "reorderable"],
-    emits: ["toggle-expand", "close", "move", "status", "session"],
+    props: ["uid", "expanded", "launcher", "session", "cwd", "home"],
+    emits: ["toggle-expand", "toggle-panel", "close", "status", "session"],
     template: '<div class="stub-launcher-cell" />',
   },
+}));
+// Only the tab strip is under test where these appear; the panes' own behaviour has its own specs,
+// and the real CollectionsPane reaches for the collection plugin on mount.
+vi.mock("../../../src/components/CollectionsPane.vue", () => ({
+  default: { name: "CollectionsPane", props: ["cwd", "expanded"], emits: ["toggle-expand", "close"], template: '<div class="stub-collections-pane" />' },
 }));
 
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
@@ -148,12 +153,11 @@ describe("TerminalGrid (page renderer)", () => {
     expect(w.emitted("toggle-expand")?.[0]).toEqual([7]);
   });
 
-  it("passes reorderable through and re-emits move/status tagged with uid", () => {
-    const w = mountGrid([cell(7, "s")], null, true);
-    expect(cellsOf(w)[0].props("reorderable")).toBe(true);
-    cellsOf(w)[0].vm.$emit("move", 1);
+  // Reordering is the roster's alone now — its ⋮ and its drag handle, below. A cell carries no move
+  // buttons, so its status is what is left for the grid to relay.
+  it("re-emits status tagged with uid", () => {
+    const w = mountGrid([cell(7, "s")]);
     cellsOf(w)[0].vm.$emit("status", "waiting");
-    expect(w.emitted("move")?.[0]).toEqual([7, 1]);
     expect(w.emitted("status")?.[0]).toEqual([7, "waiting"]);
   });
 
@@ -733,19 +737,27 @@ describe("grid cockpit (list view)", () => {
 // rather than as another child of the stage.
 describe("file pane beside the enlarged cell", () => {
   const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "FilesPane" });
+  // The cell's Panel button. It reopens the pane used last, and a grid that has shown none yet
+  // starts on Files — so on every mount here it is the files toggle the header used to have.
   // Idempotent: the open state persists, so a second mount in the same test may already
   // have it, and a blind toggle would close it.
   const openPane = async (w: ReturnType<typeof mount>) => {
     if (paneOf(w).exists()) return;
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await nextTick();
   };
   // The same for a cell that is NOT the enlarged one. Since #1378 each cell has its own answer,
   // so a test that walks the zoom has to say what the cell it walks TO has open — otherwise the
-  // pane closes on arrival, which is the feature rather than a broken fixture.
+  // pane closes on arrival, which is the feature rather than a broken fixture. Files, because that
+  // is the pane last used whenever this is called.
   const openPaneOnCell = async (w: ReturnType<typeof mount>, index: number) => {
-    await w.findAllComponents({ name: "TerminalCell" })[index].vm.$emit("toggle-files");
+    await w.findAllComponents({ name: "TerminalCell" })[index].vm.$emit("toggle-panel");
     await nextTick();
+  };
+  // A tab in the side pane: switches the cell on screen to that pane, and never closes one.
+  const pickTab = async (w: ReturnType<typeof mount>, pane: string) => {
+    await w.get(`[data-testid="side-pane-tab-${pane}"]`).trigger("click");
+    await flushPromises();
   };
 
   // The zoom FLIP asks for prefers-reduced-motion, which jsdom omits; these tests move the
@@ -846,12 +858,12 @@ describe("file pane beside the enlarged cell", () => {
     expect(label.attributes("title")).toBe("/one");
   });
 
-  // Closing unmounts the pane, buffer and all — so the toggle saves on the way out.
-  it("saves before the header toggle closes the pane", async () => {
+  // Closing unmounts the pane, buffer and all — so the Panel button saves on the way out.
+  it("saves before the header's Panel button closes the pane", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await openPane(w);
 
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
     expect(paneStub.flush).toHaveBeenCalledTimes(1);
     expect(paneOf(w).exists()).toBe(false);
@@ -1004,9 +1016,9 @@ describe("file pane beside the enlarged cell", () => {
     await openPane(w);
     paneStub.snapshot.mockReturnValueOnce({ openPath: "a.md", expanded: [] });
 
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
     await flushPromises();
     expect(paneOf(w).props("initialState")).toEqual({ openPath: "a.md", expanded: [] });
   });
@@ -1070,15 +1082,14 @@ describe("file pane beside the enlarged cell", () => {
       expect(paneOf(w).exists()).toBe(false); // cell 2 never asked
     });
 
+    // Cell 2 reaches its Canvas the way a user does now: enlarged, its Panel button, then the tab.
     it("gives each cell back what it had, walking the zoom between them", async () => {
       const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
       await openPane(w); // cell 1: files
-      await w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-canvas"); // cell 2: canvas
-      await flushPromises();
-      expect(paneOf(w).exists()).toBe(true); // still cell 1's, which is the one enlarged
-
       await w.setProps({ expandedUid: 2 });
       await flushPromises();
+      await openPaneOnCell(w, 1);
+      await pickTab(w, "canvas"); // cell 2: canvas
       expect(paneOf(w).exists()).toBe(false);
       expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
 
@@ -1086,23 +1097,32 @@ describe("file pane beside the enlarged cell", () => {
       await flushPromises();
       expect(paneOf(w).exists()).toBe(true);
       expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(false);
+
+      await w.setProps({ expandedUid: 2 });
+      await flushPromises();
+      expect(paneOf(w).exists()).toBe(false);
+      expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
     });
 
     // A pane asked for while the grid is tiled is that cell's answer for when it IS enlarged —
-    // which is the case the issue opens with (#1378): the canvas cannot open with nothing zoomed.
+    // which is the case the issue opens with (#1378): the pane cannot open with nothing zoomed.
+    // The Panel button records the pane last used, which here is Files — so the tiled press is
+    // proved to have moved nothing by the one pane staying on the directory it was on.
     it("opens on enlarging a cell whose pane was asked for while tiled", async () => {
       const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
       await openPane(w);
       await w.setProps({ expandedUid: null });
       await flushPromises();
 
-      await w.findAllComponents({ name: "TerminalCell" })[1].vm.$emit("toggle-canvas");
+      await openPaneOnCell(w, 1);
       await flushPromises();
-      expect(paneOf(w).exists()).toBe(true); // the tiled press moved nothing: cell 1's pane stays
+      // The tiled press moved nothing: cell 1's pane stays where it is, its buffer untouched.
+      expect(paneOf(w).props("cwd")).toBe("/one");
+      expect(paneStub.flush).not.toHaveBeenCalled();
 
       await w.setProps({ expandedUid: 2 });
       await flushPromises();
-      expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(true);
+      expect(paneOf(w).props("cwd")).toBe("/two");
     });
 
     // Closing is an answer, not the absence of one — a reload must not hand the cell back a pane
@@ -1110,13 +1130,66 @@ describe("file pane beside the enlarged cell", () => {
     it("keeps a cell closed after the user closes it", async () => {
       const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
       await openPane(w);
-      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+      expect(paneOf(w).exists()).toBe(true); // or the close below closes nothing
+      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
       await flushPromises();
 
       const reopened = mountCockpit([cell(9, "s1", "/proj"), cell(10)], 9, []);
       await flushPromises();
       expect(paneOf(reopened).exists()).toBe(false);
     });
+  });
+});
+
+// The tabs replaced a header button per pane, so what the side pane offers is the grid's to decide
+// now. Collections is the one tab that depends on the directory: the pane is a window onto the
+// `data` group's store, so where that group is not registered there is no tab for it — unlike
+// Canvas, which stays and explains itself in the pane.
+describe("the side pane's tabs", () => {
+  const ok = (body: unknown) => ({ ok: true, json: async () => body }) as unknown as Response;
+  const answerGroups = (groups: string[]) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("/api/tools")) return ok({ groups });
+      if (u.includes("/api/question/")) return ok({ question: null });
+      return ok({ toolResults: [] });
+    }) as unknown as typeof fetch;
+  };
+  const tabsOf = (w: ReturnType<typeof mount>) => w.findAll('[role="tab"]').map((tab) => tab.attributes("data-testid"));
+  const EVERY_PANE_BUT_COLLECTIONS = ["files", "canvas", "tools", "prompts", "transcript"].map((pane) => `side-pane-tab-${pane}`);
+
+  beforeEach(() => localStorage.clear());
+
+  it("offers Collections only where the directory has the collection tools", async () => {
+    answerGroups([]);
+    const without = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    without.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+    expect(tabsOf(without)).toEqual(EVERY_PANE_BUT_COLLECTIONS);
+    without.unmount();
+
+    // The open pane is remembered by session, and a Panel press on a pane that is already up
+    // closes it — so the second grid starts from nothing, as the first did.
+    localStorage.clear();
+    answerGroups(["data"]);
+    const withTools = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    withTools.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+    expect(tabsOf(withTools)).toEqual([...EVERY_PANE_BUT_COLLECTIONS, "side-pane-tab-collections"]);
+  });
+
+  // A pane on screen must stay named. Losing the tools mid-session (a relaunch, a reconnect that
+  // answers differently) or coming back to a pane remembered from before must not leave the strip
+  // with no tab for what is showing under it.
+  it("keeps the Collections tab while its pane is showing, even with the tools gone", async () => {
+    answerGroups([]);
+    localStorage.setItem("pane_open_by_session", JSON.stringify({ s1: "collections" }));
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    expect(w.findComponent({ name: "CollectionsPane" }).exists()).toBe(true);
+    expect(w.get('[data-testid="side-pane-tab-collections"]').attributes("aria-selected")).toBe("true");
   });
 });
 
@@ -1156,8 +1229,8 @@ describe("file pane width restored from storage", () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await flushPromises();
     // 1000 wide, terminal keeps MIN_TERMINAL (320), the separator and border take PANE_CHROME →
-    // the pane gets what is left.
-    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain(`${PANE_ROOM - 320}px`);
+    // the pane gets what is left. The width is the side-pane column's, which every pane fills.
+    expect(w.get('[data-testid="side-pane"]').attributes("style")).toContain(`${PANE_ROOM - 320}px`);
   });
 
   // The single view's splitter announces its range; a screen-reader user resizing this one gets
@@ -1178,7 +1251,7 @@ describe("file pane width restored from storage", () => {
     localStorage.setItem("files_pane_width", "400");
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await flushPromises();
-    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("400px");
+    expect(w.get('[data-testid="side-pane"]').attributes("style")).toContain("400px");
   });
 });
 
@@ -1211,6 +1284,9 @@ describe("open-in-canvas", () => {
   // Only the WRITE is held open; the reads the grid makes on expand must settle as usual. The two
   // are told apart by the trailing `s`, not by a substring test — `/toolResults/<id>` CONTAINS
   // `/toolResult`, so a `.includes` here holds the read as well and the race under test never runs.
+  //
+  // `/api/tools` answers "no drawing tools" rather than nothing: an unanswered ask leaves the pane
+  // with no message whatever the card flag says, and the flag is what the last test here reads.
   const deferredWrite = () => {
     const held: Array<() => void> = [];
     globalThis.fetch = vi.fn(
@@ -1219,19 +1295,25 @@ describe("open-in-canvas", () => {
           const u = String(url);
           if (u.includes("/api/agent/toolResults/")) return resolve(ok({ toolResults: [] }));
           if (u.includes("/api/agent/toolResult")) return void held.push(() => resolve(ok({ ok: true })));
-          resolve(ok({ tools: [] }));
+          resolve(ok({ tools: [], groups: [] }));
         }),
     ) as unknown as typeof fetch;
     return () => held.forEach((r) => r());
   };
 
+  // The enlarged cell's Panel button, which opens Files on a grid that has shown no pane yet.
+  const pressPanel = async (w: ReturnType<typeof mount>) => {
+    await w
+      .findAllComponents({ name: "TerminalCell" })
+      .find((c) => c.props("expanded"))
+      ?.vm.$emit("toggle-panel");
+    await flushPromises();
+  };
+
   const gridWithPaneOpen = async () => {
     const w = mountGrid([cell(1, "s-one", "/work/a"), cell(2, "s-two", "/work/b")], 1);
     await flushPromises();
-    if (!w.findComponent({ name: "FilesPane" }).exists()) {
-      await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-      await flushPromises();
-    }
+    if (!w.findComponent({ name: "FilesPane" }).exists()) await pressPanel(w);
     return w;
   };
 
@@ -1272,8 +1354,15 @@ describe("open-in-canvas", () => {
     await flushPromises();
     // The premise, both halves. The session has no canvas group AND the grid has been told so —
     // an unanswered `/api/tools` leaves `canvasChecked` false, and then the pane carries no
-    // message whatever this flag says, which is a test that cannot fail.
-    expect(w.findComponent({ name: "TerminalCell" }).props("canvasAvailable")).toBe(false);
+    // message whatever this flag says, which is a test that cannot fail. With no Canvas button left
+    // to read that from, the pane says it itself: opened from its tab, then put away again. The
+    // tab re-asks nothing, so the flag it shows is still the one taken on enlarging.
+    await pressPanel(w);
+    await w.get('[data-testid="side-pane-tab-canvas"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBe("no-canvas-mcp");
+    w.findComponent({ name: "GuiPanel" }).vm.$emit("close");
+    await flushPromises();
     expect(w.findComponent({ name: "GuiPanel" }).exists()).toBe(false);
 
     // What the deck route has already done by the time it emits: the card is in the store.
@@ -1284,9 +1373,6 @@ describe("open-in-canvas", () => {
     expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBeNull();
   });
 
-  // The cell moved on while the write was in flight. `canvasHasCard` is one flag for whichever
-  // cell is enlarged, so a late reply would enable the SECOND cell's Canvas button on the strength
-  // of a card written for the first — and pressing it opens a Canvas with nothing of its own in it.
   // A refusal is the server's sentence about the file that was clicked, and the reopen it comes
   // from is a round trip. Walk to another cell while it is in flight and the pane on screen is
   // rooted somewhere else — writing there names a file that tree is not showing (Codex on #1942).
@@ -1319,11 +1405,7 @@ describe("open-in-canvas", () => {
     // would be untestable: the mutation would pass.
     await w.setProps({ expandedUid: 2 });
     await flushPromises();
-    const enlarged = w.findAllComponents({ name: "TerminalCell" }).find((c) => c.props("expanded"));
-    if (!w.findComponent({ name: "FilesPane" }).exists()) {
-      enlarged?.vm.$emit("toggle-files");
-      await flushPromises();
-    }
+    if (!w.findComponent({ name: "FilesPane" }).exists()) await pressPanel(w);
     expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(true); // a pane IS on screen to mis-write into
     held.forEach((release) => release());
     await flushPromises();
@@ -1358,11 +1440,7 @@ describe("open-in-canvas", () => {
     asked.vm.$emit("close");
     await flushPromises();
     expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(false);
-    await w
-      .findAllComponents({ name: "TerminalCell" })
-      .find((c) => c.props("expanded"))
-      ?.vm.$emit("toggle-files");
-    await flushPromises();
+    await pressPanel(w); // Files again: the pane used last
     const reopened = w.findComponent({ name: "FilesPane" });
     expect(reopened.exists()).toBe(true);
 
@@ -1395,7 +1473,14 @@ describe("open-in-canvas", () => {
     expect(w.find(".stub-gui-panel").exists()).toBe(false); // and no Canvas was opened on a refusal
   });
 
-  it("does not enable the Canvas button on the cell the zoom moved to", async () => {
+  // The cell moved on while the write was in flight. `canvasHasCard` is one flag for whichever
+  // cell is enlarged, so a late reply would credit the SECOND cell with a card written for the
+  // first — and its Canvas would then open with no word about why nothing of its own is in it.
+  //
+  // Read off the pane's message, which is where that flag shows now there is no Canvas button to
+  // enable. Opened from the tab rather than from the unread chip's `open-canvas`: that one re-asks
+  // the store, and would put the right answer back over the wrong one before anything could see it.
+  it("does not credit the card to the cell the zoom moved to", async () => {
     const release = deferredWrite();
     const w = await gridWithPaneOpen();
     await pickFile(w);
@@ -1405,19 +1490,34 @@ describe("open-in-canvas", () => {
     await flushPromises();
     const enlarged = w.findAllComponents({ name: "TerminalCell" }).find((c) => c.props("expanded"));
     expect(enlarged?.props("initialSessionId")).toBe("s-two");
-    expect(enlarged?.props("canvasAvailable")).toBe(false);
+
+    await pressPanel(w);
+    await w.get('[data-testid="side-pane-tab-canvas"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "GuiPanel" }).props("unavailable")).toBe("no-canvas-mcp");
   });
 });
 
 // The prompts pane's own behaviour has its own spec; what the GRID owes it is the wiring — the
-// header button's event has to reach `toggleRightPane`, and the pane has to land in the row beside
-// the enlarged terminal in both zoomed modes. A button whose event the grid does not map is dead
-// and typechecks (#1573), which is why this is asserted rather than read. (CodeRabbit, #1749.)
+// header's Panel button has to reach `toggleRightPane`, its tab has to switch to it, and the pane
+// has to land in the row beside the enlarged terminal in both zoomed modes. A button whose event
+// the grid does not map is dead and typechecks (#1573), which is why this is asserted rather than
+// read. (CodeRabbit, #1749.)
 describe("prompts pane beside the enlarged cell", () => {
   const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "PromptsPane" });
-  const togglePrompts = async (w: ReturnType<typeof mount>) => {
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-prompts");
-    await nextTick();
+  const pressPanel = async (w: ReturnType<typeof mount>) => {
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-panel");
+    await flushPromises();
+  };
+  const promptsTab = async (w: ReturnType<typeof mount>) => {
+    await w.get('[data-testid="side-pane-tab-prompts"]').trigger("click");
+    await flushPromises();
+  };
+  // The Panel button opens the pane used last — Files, on a grid that has shown none — and the tab
+  // is how Prompts is reached from there.
+  const openPrompts = async (w: ReturnType<typeof mount>) => {
+    await pressPanel(w);
+    await promptsTab(w);
   };
 
   beforeEach(() => localStorage.clear());
@@ -1428,22 +1528,34 @@ describe("prompts pane beside the enlarged cell", () => {
   ])("opens beside the enlarged terminal in %s mode", async (_name, listMode) => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
     expect(paneOf(w).exists()).toBe(false);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).exists()).toBe(true);
     expect(w.find(".zoom-main").element.parentElement?.contains(paneOf(w).element)).toBe(true);
   });
 
-  it("closes on the same button — it is the pane's only other close", async () => {
+  // A tab only ever switches: a second click on the one showing is not the toggle a header button
+  // was, and the Panel button is what puts the pane away. Pressed again, it brings back the pane
+  // used LAST rather than Files — that memory is the whole reason one button can stand in for a
+  // toggle per pane.
+  it("keeps the pane on a second click of its tab, closes on the Panel button, and comes back on it", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
-    await togglePrompts(w);
-    await togglePrompts(w);
+    await openPrompts(w);
+    await promptsTab(w);
+    expect(paneOf(w).exists()).toBe(true);
+
+    await pressPanel(w);
     expect(paneOf(w).exists()).toBe(false);
+    expect(w.find('[data-testid="side-pane"]').exists()).toBe(false);
+
+    await pressPanel(w);
+    expect(paneOf(w).exists()).toBe(true);
+    expect(w.findComponent({ name: "FilesPane" }).exists()).toBe(false);
   });
 
   // Which log to read is decided from the CELL, so the pane cannot ask for the right one on its own.
   it("hands it the enlarged cell's session, directory and agent", async () => {
     const w = mountCockpit([{ uid: 1, session: "s1", cwd: "/proj", agent: "codex" }, cell(2)], 1, []);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).props("sessionId")).toBe("s1");
     expect(paneOf(w).props("cwd")).toBe("/proj");
     expect(paneOf(w).props("agent")).toBe("codex");
@@ -1452,7 +1564,7 @@ describe("prompts pane beside the enlarged cell", () => {
   // Absent means Claude, the way a persisted cell encodes the default.
   it("reads a cell with no agent as claude", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
-    await togglePrompts(w);
+    await openPrompts(w);
     expect(paneOf(w).props("agent")).toBe("claude");
   });
 });

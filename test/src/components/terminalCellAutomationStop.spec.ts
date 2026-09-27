@@ -15,7 +15,8 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader"],
     emits: ["session", "cwd"],
-    template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-lead" /><slot v-if="!hideHeader" name="header-actions" /></div>',
+    // No slots: the talk menu hangs off the cell's own ⋮ on row 1, not the terminal's header.
+    template: '<div class="stub-term" />',
     methods: {
       terminate() {},
     },
@@ -51,7 +52,6 @@ const mountCell = () =>
       uid: 1,
       expanded: false,
       zoomed: false,
-      reorderable: false,
       initialSessionId: "11111111-1111-1111-1111-111111111111",
       initialCwd: null,
       defaultCwd: "/home/me/proj",
@@ -69,7 +69,9 @@ describe("closing a cell stops its automation", () => {
     const w = mountCell();
     await flushPromises();
 
-    await w.find('[data-testid="cell-ask"]').trigger("click");
+    // Talk to another terminal: an item of the ⋮ menu, whose panel is teleported to <body>.
+    await w.find('[data-testid="cell-menu"]').trigger("click");
+    document.body.querySelector<HTMLElement>('[data-testid="cell-menu-talk"]')?.click();
     await flushPromises();
     await w.find('[data-testid="round-table-seat"]').setValue(true);
     await w.find('[data-testid="round-table-start"]').trigger("click");

@@ -30,6 +30,7 @@ import {
   sessionCell,
   launchInCell,
   setSortMode,
+  adoptManualOrder,
   moveCell,
   moveCellBefore,
   moveZoom,
@@ -408,10 +409,22 @@ const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScrip
 // The empty cell launcher picked a program — a configured launch command, or the OS default
 // shell: turn it into a persistent launcher cell. Its session id arrives later via onSession.
 const onLaunch = (uid: number, pick: LaunchPick) => (state.value = launchInCell(state.value, uid, pick.launcher, pick.cwd));
-const onMove = (uid: number, dir: -1 | 1) => (state.value = moveCell(state.value, uid, dir));
-// The roster's drag handle: an arbitrary slot rather than a step (#2126). Same flat list, so the
-// tiles re-order with it.
-const onMoveBefore = (uid: number, beforeUid: number | null) => (state.value = moveCellBefore(state.value, uid, beforeUid));
+// Reordering is ONE gesture — dragging a cell's handle, in the roster or the tiled grid — plus its
+// keyboard twin, and it works in every order mode: touching the order makes it manual, starting
+// from what is on screen (adoptManualOrder). The step-wise arrows and the roster's up/down menu
+// that used to sit beside the drag are gone.
+const onManualOrder = () => (state.value = adoptManualOrder(state.value, orderedCells.value));
+// An arbitrary slot rather than a step (#2126). Same flat list, so the tiles and the roster re-order
+// together.
+const onMoveBefore = (uid: number, beforeUid: number | null) =>
+  (state.value = moveCellBefore(adoptManualOrder(state.value, orderedCells.value), uid, beforeUid));
+// The keyboard's way to the same thing: one place earlier or later. Answers whether the shortcut was
+// one of the two, so the dispatcher below stays one branch longer rather than two.
+function runMoveShortcut(shortcut: GridShortcut, uid: number | null): boolean {
+  if (shortcut !== "cell-move-prev" && shortcut !== "cell-move-next") return false;
+  if (uid !== null) state.value = moveCell(adoptManualOrder(state.value, orderedCells.value), uid, shortcut === "cell-move-prev" ? -1 : 1);
+  return true;
+}
 // The header's order menu names the mode it wants; nothing cycles through them any more.
 const onSetSortMode = (mode: SortMode) => (state.value = setSortMode(state.value, mode));
 // Switching page BY HAND is the one page change that moves no cursor: the cells leaving the screen
@@ -521,6 +534,7 @@ function runShortcut(shortcut: GridShortcut) {
   // a cell calling from another page even though the toolbar counts those. Hence orderUids.
   const order = orderUids.value;
   const uid = expandedUid.value;
+  if (runMoveShortcut(shortcut, uid)) return;
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
   } else if (shortcut === "focus-next" || shortcut === "focus-prev") {
@@ -923,12 +937,11 @@ onBeforeUnmount(detachSpawnedChat);
       @retry-config="loadConfig"
       @close="onClose"
       @toggle-expand="onToggleExpand"
-      @new-here="toggleLaunchPanel"
       @focus-cell="focusedCellUid = $event"
       @run="onRun"
       @run-spare="onRunSpare"
       @launch="onLaunch"
-      @move="onMove"
+      @manual-order="onManualOrder"
       @move-before="onMoveBefore"
       @status="onStatus"
     />

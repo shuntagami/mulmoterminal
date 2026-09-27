@@ -46,6 +46,7 @@ import TimelineOverlay from "./TimelineOverlay.vue";
 import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import CellMenu, { type CellMenuItem, type CellMenuSection } from "./CellMenu.vue";
 import { isCellSunk, SUNK_CELL, SUNK_DOT_STATUS } from "./cellParked";
 import { cellChromeBinding } from "./cellChromeBinding";
 import type { CwdPreset } from "./presets";
@@ -142,8 +143,6 @@ const props = defineProps<
     // Dirs with a running session in another cell, so the launcher can tint preset
     // chips whose dir is already in use.
     openCwds?: string[];
-    // Manual sort mode: show move buttons to swap this cell with its neighbour.
-    reorderable?: boolean;
     // Set aside by the user (#992): sunk out of the way, still connected, still holding history.
     parked?: boolean;
   }
@@ -679,13 +678,6 @@ function openGithub(suffix: string) {
 // drift apart. `afterSlotKey` places the new terminal next to this cell, which is the whole point
 // of "here"; it is this cell's durable-connection slot key (see persist-key).
 //
-// Files deliberately does NOT any more (#1910): it asks the GRID for the pane beside this cell,
-// which is somewhere only the grid can put it. A user's own `open.files` button still opens the
-// full-screen view, and has to — it carries an arbitrary path, while the pane can only ever be
-// rooted at the enlarged cell (see FilesPane's defineExpose contract: it never watches its `cwd`).
-function browseFiles() {
-  emit("open-files");
-}
 function newTerminalHere() {
   if (cwd.value) openTerminalAt(cwd.value, `cell-${props.uid}`);
 }
@@ -1220,6 +1212,31 @@ function startMemoEdit() {
   void nextTick(() => memoInput.value?.select());
 }
 
+// The ⋮ menu: what is done to this cell or its session now and then. Each used to be a permanent
+// icon of its own (the note pencil, set aside, talk, copy, timeline) at the weight of the buttons
+// pressed all day. Session actions only while there is a session to act on.
+const copyBlock = useTemplateRef<InstanceType<typeof CopyCodeBlock>>("copyBlock");
+const parkItem = computed<CellMenuItem>(() =>
+  parked.value
+    ? { key: "park", icon: "bedtime", label: "Wake this terminal", run: togglePark }
+    : { key: "park", icon: "bedtime", label: "Set aside", detail: "Stays open and keeps its history", run: togglePark },
+);
+const menuSections = computed<CellMenuSection[]>(() => {
+  const cell: CellMenuItem[] = [];
+  if (sessionId.value) cell.push({ key: "note", icon: "edit_note", label: memo.value ? "Edit the note" : "Write a note", run: startMemoEdit });
+  cell.push(parkItem.value);
+  const sections: CellMenuSection[] = [{ key: "cell", title: "This cell", items: cell }];
+  if (!sessionId.value) return sections;
+  const session: CellMenuItem[] = [
+    { key: "talk", icon: "forum", label: "Talk to another terminal", opens: true, run: openAskMenu },
+    { key: "copy", icon: "content_copy", label: "Copy the last code block", run: () => void copyBlock.value?.copyLastBlock() },
+  ];
+  if (agent.value === "claude") session.push({ key: "timeline", icon: "history", label: "Activity timeline", run: () => (timelineOpen.value = true) });
+  return [...sections, { key: "session", title: "This session", items: session }];
+});
+// A filmstrip thumbnail has no note field and no session row to hang the rest on.
+const thumbMenuSections = computed<CellMenuSection[]>(() => [{ key: "cell", title: "This cell", items: [parkItem.value] }]);
+
 function cancelMemoEdit() {
   memoEditing.value = false;
 }
@@ -1486,19 +1503,21 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           @click="onHeaderClick"
         >
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <CellChromeButtons v-bind="chromeProps" :can-park="true" :parked="parked" v-on="chromeEvents" @toggle-park="togglePark" />
+            <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents">
+              <CellMenu :sections="thumbMenuSections" />
+            </CellChromeButtons>
           </span>
         </CockpitHeader>
         <!-- Row 1 — the CELL (normal grid / expanded): what it is (dir + git + model/token + what
-           it's doing) and what you can do to the cell itself (reorder / expand / park / close).
-           Row 2 — the embedded terminal's header, via its slot — is the SESSION: everything that
-           acts on the agent running inside. The split is scope, not info-vs-action: row 2 is gone
-           entirely on a filmstrip thumbnail, so anything a cell needs whether or not it holds a
-           live session has to be here.
-           Row 1 has two design languages, both deliberate: CELL_BTN for the cell controls pinned
-           right, and CELL_CHIP_BTN for the pressable chips in the info track (canvas unread, diff,
-           the note pencil) — those are sized like the chips they sit among so a cell with a note
-           is exactly as tall as one without. -->
+           it's doing), then the controls pinned right — Panel, the ⋮ menu, expand / restore,
+           close. Everything done to the cell or its session now and then (the note, set aside,
+           talking to another terminal, copying a code block, the activity timeline) is in the ⋮,
+           in words; each used to be a permanent icon of its own.
+           Row 2 — the embedded terminal's header — keeps the session's INPUT: the path menu, Run,
+           Skill, the configured header buttons, voice. This cell adds nothing there any more.
+           Row 1 has two design languages, both deliberate: CELL_BTN for the controls pinned right,
+           and CELL_CHIP_BTN for the pressable chips in the info track (canvas unread, diff) — those
+           are sized like the chips they sit among. -->
         <div
           v-else
           class="cell-header flex h-[34px] flex-none items-center gap-2 border-b px-2"
@@ -1620,38 +1639,99 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               :title="headerTitleAttr"
               >{{ headerText }}</span
             >
-            <!-- One of the info track's pressable chips (CELL_CHIP_BTN), like the canvas and diff
-               badges above: sized like the chips beside it rather than like a header action, so a
-               cell with a note is exactly as tall as one without. The ink is the one thing it does
-               NOT share — accent once a note exists, so the pencil says whether there is one to
-               read when the note itself is scrolled out of a narrow header. -->
-            <button
-              v-if="sessionId && !memoEditing"
-              type="button"
-              data-testid="cell-memo-edit"
-              :class="[CELL_CHIP_BTN, memo ? 'text-accent' : 'text-dim']"
-              :title="memo ? 'Edit this session\'s note' : 'Add a note to this session'"
-              :aria-label="memo ? 'Edit this session\'s note' : 'Add a note to this session'"
-              @click.stop="startMemoEdit"
-            >
-              <span :class="CELL_CHIP_ICON" aria-hidden="true">edit_note</span>
-            </button>
           </div>
-          <!-- The cell's own controls — reorder, expand/restore, park, close — stay on row 1 and
-             OUTSIDE the info track, so they're always pinned top-right. They act on the CELL
-             (where it sits in the grid, how big it is, whether it lives), not on the session
-             inside it, which is what separates them from row 2's actions; that is also why they
-             survive when there is no session. Reorder before the chrome buttons, which is the
-             order the command and launcher cells already use (CellShell). No `.stop`:
-             shouldZoomOnHeaderClick already ignores a click inside a button. -->
+          <!-- The controls stay OUTSIDE the info track, so they're always pinned top-right however
+             much a directory's config crams into it. No `.stop`: shouldZoomOnHeaderClick already
+             ignores a click inside a button. -->
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">
-              <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
-            </button>
-            <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">
-              <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-            </button>
-            <CellChromeButtons v-bind="chromeProps" :can-park="true" :parked="parked" v-on="chromeEvents" @toggle-park="togglePark" />
+            <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents">
+              <!-- The ⋮ and what hangs off it. The talk-to-another-terminal menu opens from one of its
+                   items, so it anchors here: `askWrap` wraps the trigger and the popovers alike. The
+                   code-block copier has no button of its own any more; it stays mounted for its
+                   "Copied" note and its manual-copy dialog. -->
+              <span ref="askWrap" class="relative inline-flex flex-none">
+                <CellMenu :sections="menuSections" />
+                <CopyCodeBlock v-if="sessionId" ref="copyBlock" headless :session-id="sessionId" :cwd="cwd" :agent="agent" />
+                <!-- Bounded and scrollable, like every other dropdown here (MulmoMenu / RunMenu /
+                   SkillMenu). This one was the exception, and it holds TWO lists that grow with the
+                   grid — one row per other terminal here, and one seat per terminal in the round
+                   table below — so at 20 cells it stood 1750px tall with nothing scrollable, and
+                   Start sat a thousand pixels below the window (#2003).
+                   The lists inside do the scrolling, so the controls under them (turns, room,
+                   Start) stay put instead of scrolling away with the rows they act on. The
+                   container scrolls too — `overflow-y-auto`, not `overflow-hidden` — because the
+                   controls are `flex-none` and a short enough menu cannot shrink to hold them:
+                   with `hidden` they were CLIPPED, which is the reported bug again at any height
+                   under ~250px. Scrolling is the graceful failure; clipping is the original one. -->
+                <div
+                  v-if="askMenuOpen"
+                  data-testid="cell-ask-menu"
+                  class="absolute right-0 z-20 flex min-w-[180px] flex-col overflow-y-auto rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                  :class="askMenuUp ? 'bottom-full mb-1' : 'top-full mt-1'"
+                  :style="askMenuMaxH === null ? undefined : { maxHeight: `${askMenuMaxH}px` }"
+                  @keydown.escape="askMenuOpen = false"
+                >
+                  <!-- A floor of about one row, not `min-h-0`: a flex child that may shrink below its
+                     content will shrink to ZERO in a short menu, and a list with no height is a list
+                     nobody can click. Shrinking is still what gives the max-height its room — this
+                     only stops it going all the way. -->
+                  <div v-if="askTargets.length" data-testid="cell-ask-list" class="flex min-h-[2.5rem] flex-col overflow-y-auto">
+                    <div v-for="target in askTargets" :key="target.key" class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        data-testid="cell-ask-item"
+                        class="flex-1"
+                        :class="CELL_MENU_ITEM"
+                        :title="`Bring ${target.label}'s last turn here`"
+                        @click="askCell(target)"
+                      >
+                        {{ target.label }}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="cell-exchange-item"
+                        :aria-label="`Exchange one turn with ${target.label}`"
+                        class="cursor-pointer rounded-[4px] border-none bg-transparent px-1.5 py-1.5 font-sans text-[12px] text-dim hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-40"
+                        :disabled="automating"
+                        title="Send this cell's turn there and bring the answer back, both submitted"
+                        @click="exchangeWith(target)"
+                      >
+                        <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
+                      </button>
+                    </div>
+                  </div>
+                  <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
+                  <RoundTableMenu
+                    v-if="askTargets.length"
+                    :targets="askTargets"
+                    :self-label="`#${uid}`"
+                    :running="tableRunning"
+                    :room="tableRoom"
+                    :busy="automating"
+                    @start="startTable"
+                    @stop="stopTable"
+                  />
+                </div>
+                <button
+                  v-if="exchanging"
+                  type="button"
+                  data-testid="cell-exchange-stop"
+                  aria-label="Stop the exchange in progress"
+                  class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
+                  @click="stopExchange"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
+                </button>
+                <p
+                  v-else-if="askMsg"
+                  data-testid="cell-ask-msg"
+                  role="status"
+                  class="absolute right-0 top-full z-20 m-0 mt-1 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-dim shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                >
+                  {{ askMsg }}
+                </p>
+              </span>
+            </CellChromeButtons>
           </span>
         </div>
         <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
@@ -1726,9 +1806,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 <button type="button" data-testid="cell-path-item" :class="PATH_MENU_ITEM" @click="pathMenuAction(openDir)">
                   <span class="material-symbols-outlined text-[15px]" aria-hidden="true">folder</span> Reveal in the file manager
                 </button>
-                <button type="button" data-testid="cell-path-item" :class="PATH_MENU_ITEM" @click="pathMenuAction(browseFiles)">
-                  <span class="material-symbols-outlined text-[15px]" aria-hidden="true">folder_open</span> Browse files in the app
-                </button>
                 <button type="button" data-testid="cell-path-item" :class="PATH_MENU_ITEM" @click="pathMenuAction(newTerminalHere)">
                   <span class="material-symbols-outlined text-[15px]" aria-hidden="true">terminal</span> New terminal here
                 </button>
@@ -1751,112 +1828,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 </template>
               </div>
             </span>
-          </template>
-          <template #header-actions>
-            <span v-if="sessionId" ref="askWrap" class="relative inline-flex flex-none">
-              <button
-                type="button"
-                data-testid="cell-ask"
-                class="cell-btn"
-                :class="CELL_BTN"
-                title="Talk to another terminal — bring its last turn here, trade one turn, or start a round table"
-                aria-label="Talk to another terminal"
-                aria-haspopup="true"
-                :aria-expanded="askMenuOpen"
-                @click="openAskMenu"
-              >
-                <span class="material-symbols-outlined" aria-hidden="true">forum</span>
-              </button>
-              <!-- Bounded and scrollable, like every other dropdown here (MulmoMenu / RunMenu /
-                   SkillMenu). This one was the exception, and it holds TWO lists that grow with the
-                   grid — one row per other terminal here, and one seat per terminal in the round
-                   table below — so at 20 cells it stood 1750px tall with nothing scrollable, and
-                   Start sat a thousand pixels below the window (#2003).
-                   The lists inside do the scrolling, so the controls under them (turns, room,
-                   Start) stay put instead of scrolling away with the rows they act on. The
-                   container scrolls too — `overflow-y-auto`, not `overflow-hidden` — because the
-                   controls are `flex-none` and a short enough menu cannot shrink to hold them:
-                   with `hidden` they were CLIPPED, which is the reported bug again at any height
-                   under ~250px. Scrolling is the graceful failure; clipping is the original one. -->
-              <div
-                v-if="askMenuOpen"
-                data-testid="cell-ask-menu"
-                class="absolute right-0 z-20 flex min-w-[180px] flex-col overflow-y-auto rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
-                :class="askMenuUp ? 'bottom-full mb-1' : 'top-full mt-1'"
-                :style="askMenuMaxH === null ? undefined : { maxHeight: `${askMenuMaxH}px` }"
-                @keydown.escape="askMenuOpen = false"
-              >
-                <!-- A floor of about one row, not `min-h-0`: a flex child that may shrink below its
-                     content will shrink to ZERO in a short menu, and a list with no height is a list
-                     nobody can click. Shrinking is still what gives the max-height its room — this
-                     only stops it going all the way. -->
-                <div v-if="askTargets.length" data-testid="cell-ask-list" class="flex min-h-[2.5rem] flex-col overflow-y-auto">
-                  <div v-for="target in askTargets" :key="target.key" class="flex items-center gap-1">
-                    <button
-                      type="button"
-                      data-testid="cell-ask-item"
-                      class="flex-1"
-                      :class="CELL_MENU_ITEM"
-                      :title="`Bring ${target.label}'s last turn here`"
-                      @click="askCell(target)"
-                    >
-                      {{ target.label }}
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="cell-exchange-item"
-                      :aria-label="`Exchange one turn with ${target.label}`"
-                      class="cursor-pointer rounded-[4px] border-none bg-transparent px-1.5 py-1.5 font-sans text-[12px] text-dim hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-40"
-                      :disabled="automating"
-                      title="Send this cell's turn there and bring the answer back, both submitted"
-                      @click="exchangeWith(target)"
-                    >
-                      <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
-                    </button>
-                  </div>
-                </div>
-                <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
-                <RoundTableMenu
-                  v-if="askTargets.length"
-                  :targets="askTargets"
-                  :self-label="`#${uid}`"
-                  :running="tableRunning"
-                  :room="tableRoom"
-                  :busy="automating"
-                  @start="startTable"
-                  @stop="stopTable"
-                />
-              </div>
-              <button
-                v-if="exchanging"
-                type="button"
-                data-testid="cell-exchange-stop"
-                aria-label="Stop the exchange in progress"
-                class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
-                @click="stopExchange"
-              >
-                <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
-              </button>
-              <p
-                v-else-if="askMsg"
-                data-testid="cell-ask-msg"
-                role="status"
-                class="absolute right-0 top-full z-20 m-0 mt-1 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-dim shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
-              >
-                {{ askMsg }}
-              </p>
-            </span>
-            <CopyCodeBlock v-if="sessionId" :class="CELL_BTN" :session-id="sessionId" :cwd="cwd" :agent="agent" />
-            <button
-              v-if="sessionId && agent === 'claude'"
-              class="cell-btn"
-              :class="CELL_BTN"
-              title="Activity timeline"
-              aria-label="Show activity timeline"
-              @click="timelineOpen = true"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">history</span>
-            </button>
           </template>
         </TerminalView>
         <div

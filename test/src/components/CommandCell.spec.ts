@@ -3,6 +3,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import CommandCell from "../../../src/components/CommandCell.vue";
 import type { RunCommand } from "../../../src/components/runCommand.js";
+import type { RightPane } from "../../../src/components/gridCell";
 
 // Stub the terminal so no xterm/WebSocket is needed; it forwards the props the cell
 // passes (command/connectKey), can emit "exit" to drive the re-run UI, and exposes
@@ -71,36 +72,30 @@ describe("CommandCell", () => {
     expect(w.emitted("close")).toHaveLength(1);
   });
 
-  // All five chrome events now reach the parent through ONE object binding (cellChromeBinding)
-  // rather than five hand-written `@` lines. A key that binding gets wrong is a button that
-  // silently does nothing, and canvas/tools had no cell-level coverage at all — so all five are
-  // asserted, not just the two that already were.
-  it("forwards every chrome event, including the canvas, tools and collections toggles", async () => {
-    const w = mount(CommandCell, {
-      props: { expanded: true, filesOpen: false, canvasAvailable: true, collectionsAvailable: true, command: COMMAND, home: "/work" },
-    });
-    await w.find('[aria-label="Show files"]').trigger("click");
-    await w.find('[aria-label="Show canvas"]').trigger("click");
-    await w.find('[aria-label="Show tools"]').trigger("click");
-    await w.find('[aria-label="Show this folder\'s collections"]').trigger("click");
+  // Every chrome event reaches the parent through ONE object binding (cellShellEvents) rather than
+  // a hand-written `@` line each. A key that binding gets wrong is a button that silently does
+  // nothing — the collections toggle once shipped exactly that way (see cellChromeForwarding.spec)
+  // — so all three are asserted at the cell, not just the two a tile can show.
+  it("forwards every chrome event, including the Panel toggle", async () => {
+    const w = mount(CommandCell, { props: { expanded: true, command: COMMAND, home: "/work" } });
+    await w.find('[data-testid="cell-panel-btn"]').trigger("click");
     await w.find('[aria-label="Restore terminal"]').trigger("click");
     await w.find('[aria-label="Close terminal"]').trigger("click");
-    expect(w.emitted("toggle-files")).toHaveLength(1);
-    expect(w.emitted("toggle-canvas")).toHaveLength(1);
-    expect(w.emitted("toggle-tools")).toHaveLength(1);
-    // The one this list was missing while the button was dead — see cellChromeForwarding.spec.
-    expect(w.emitted("toggle-collections")).toHaveLength(1);
+    expect(w.emitted("toggle-panel")).toHaveLength(1);
     expect(w.emitted("toggle-expand")).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
   });
 
-  // The canvas button is disabled when the directory has no render MCP, so the binding must carry
-  // canvasAvailable through — a `true` that arrived as undefined would disable a usable button.
-  it("disables the canvas toggle when the cell has no render MCP", () => {
-    const w = mount(CommandCell, { props: { expanded: true, command: COMMAND, home: "/work" } });
-    expect(w.find('[data-testid="cell-canvas-btn"]').attributes("disabled")).toBeDefined();
-    const available = mount(CommandCell, { props: { expanded: true, canvasAvailable: true, command: COMMAND, home: "/work" } });
-    expect(available.find('[data-testid="cell-canvas-btn"]').attributes("disabled")).toBeUndefined();
+  // The pane is the GRID's, so whether it is open arrives as `rightPane` and has to survive two
+  // hops — this cell to CellShell, CellShell through the binding — to become the Panel button's
+  // pressed state. A hop that dropped it would leave a button reading "Show" over an open pane.
+  it("presses the Panel button while the grid has a pane open for this cell", () => {
+    const pressed = (rightPane: RightPane | null) =>
+      mount(CommandCell, { props: { expanded: true, rightPane, command: COMMAND, home: "/work" } })
+        .find('[data-testid="cell-panel-btn"]')
+        .attributes("aria-pressed");
+    expect(pressed("canvas")).toBe("true");
+    expect(pressed(null)).toBe("false");
   });
 
   it("zooms on a header-background click in the normal grid (mirrors clicking the body)", async () => {
@@ -223,9 +218,12 @@ describe("CommandCell summarize", () => {
     expect(w.find('[data-testid="cell-summary"]').exists()).toBe(false);
   });
 
-  // #2007, the other half: the command cell reaches the shared chrome the same way the launcher
-  // does and binds no `toggle-park` either, so the button was equally dead here.
-  it("offers no park button: an ephemeral run has nothing to come back to", () => {
-    expect(mountCell().find('[data-testid="cell-park-btn"]').exists()).toBe(false);
+  // #2007, the other half: a park button once rendered here too, and clicked to nothing. Setting
+  // a cell aside now lives only in a session terminal's ⋮ menu, which the command cell does not
+  // put in the chrome's slot — so there is no menu here to hold it, let alone a button.
+  it("offers no way to set it aside: an ephemeral run has nothing to come back to", () => {
+    const w = mountCell();
+    expect(w.find('[data-testid="cell-menu"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-park-btn"]').exists()).toBe(false);
   });
 });
