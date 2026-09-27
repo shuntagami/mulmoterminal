@@ -1,5 +1,5 @@
 // Client-side parking of the RemoteHost session blob (case A', mulmoserver#50) and
-// the reconnect-outcome decision, split out of RemoteHostControl.vue so they're
+// the reconnect-outcome decision, split out of the remote-host composable (useRemoteHost.ts) so they're
 // unit-testable without mounting the Firebase-importing component.
 
 import { isRunnerHealth, type RunnerHealth } from "../../common/remoteHostHealth";

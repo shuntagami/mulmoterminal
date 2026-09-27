@@ -12,13 +12,14 @@
 import { computed } from "vue";
 import { useAppConfig } from "../composables/useAppConfig";
 import SettingsModal from "./SettingsModal.vue";
+import type { SettingsTabId } from "./settings/settingsTabs";
 import type { CwdPreset } from "./presets";
 import type { BundledSkillName } from "../../common/bundledSkills";
 
 // `presets` comes DOWN from the shell rather than out of useAppConfig() here: unlike the
 // sound/push/launcher state, the preset list is a per-call ref, so the copy this component
 // would get is a second, empty one — the shell that called loadConfig() has the real list.
-const props = defineProps<{ cwd?: string | null; sessionId?: string | null; presets?: CwdPreset[] }>();
+const props = defineProps<{ cwd?: string | null; sessionId?: string | null; presets?: CwdPreset[]; initialTab?: SettingsTabId | undefined }>();
 const emit = defineEmits<{ (e: "launch-skill", skill: BundledSkillName): void; (e: "close"): void }>();
 
 const {
@@ -52,6 +53,7 @@ const dirPaths = computed(() => {
 
 <template>
   <SettingsModal
+    :initial-tab="initialTab"
     :sound-file="soundFile"
     :sound-kinds="soundKinds"
     :sounds="sounds"

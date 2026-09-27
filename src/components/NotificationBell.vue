@@ -4,6 +4,9 @@ import ToolbarPopover from "./ToolbarPopover.vue";
 import { useNotifications, type NotifierEntry, type NotifierSeverity } from "../composables/useNotifications";
 import { compactRelativeTimeFromIso } from "./cellDisplay";
 import { shortPkg } from "./shortPkg";
+import { useI18n } from "vue-i18n";
+import { useSoundEnabled } from "../composables/useSoundEnabled";
+import { audioBlocked } from "../composables/audioUnlockState";
 
 // Toolbar bell: a severity-coloured unread badge + a dropdown listing the active
 // notifications. Mirrors MulmoClaude's bell structure (severity-coloured bell icon
@@ -12,6 +15,12 @@ import { shortPkg } from "./shortPkg";
 // entry's target (a completion bell's pending record) WITHOUT clearing it — the
 // watcher clears it when the record is done; the close button dismisses it explicitly.
 const { count, topSeverity, sorted, dismiss, activate } = useNotifications();
+const { t } = useI18n();
+
+// The attention sound's switch, at the foot of the list it rings for. It was a second bell-shaped
+// button beside this one — two bells a few pixels apart, one a list and one a switch, told apart by
+// a highlight. Both are about notifications, so they are one place now.
+const { enabled: soundEnabled, toggle: toggleSound } = useSoundEnabled();
 
 const popoverRef = useTemplateRef<InstanceType<typeof ToolbarPopover>>("popover");
 
@@ -98,5 +107,26 @@ function bellColorClass(severity: NotifierSeverity): string {
         </button>
       </li>
     </ul>
+    <div class="mt-1 border-t border-border px-2 pb-1 pt-2">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined flex-none text-[18px] leading-none text-muted" aria-hidden="true">{{
+          soundEnabled ? "volume_up" : "volume_off"
+        }}</span>
+        <span class="flex-auto font-sans text-[13px] text-fg">{{ t("toolbar.sound.label") }}</span>
+        <button
+          type="button"
+          role="switch"
+          data-testid="bell-sound-switch"
+          class="relative h-5 w-[34px] flex-none cursor-pointer rounded-[10px] border-0 p-0"
+          :class="soundEnabled ? 'bg-accent-bg' : 'bg-hover'"
+          :aria-checked="soundEnabled"
+          :aria-label="t('toolbar.sound.label')"
+          @click="toggleSound"
+        >
+          <span class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-[left] duration-150" :class="soundEnabled ? 'left-4' : 'left-0.5'" />
+        </button>
+      </div>
+      <p v-if="soundEnabled && audioBlocked" class="mt-1.5 font-sans text-[11px] leading-[1.4] text-warn">{{ t("toolbar.sound.blocked") }}</p>
+    </div>
   </ToolbarPopover>
 </template>

@@ -32,8 +32,5 @@
       "installHint": "The Firebase emulators need JDK 21 or later (macOS: brew install openjdk@21)."
     }
   ],
-  "credentials": [
-    "firebase login",
-    "gcloud auth login"
-  ]
+  "credentials": ["firebase login", "gcloud auth login"]
 }

@@ -103,7 +103,7 @@ const SettingsStub = {
   template: '<div class="settings-stub" />',
 };
 // A toolbar stub that lets us open the settings modal (GridView: @settings="showSettings = true").
-const ToolbarStub = { name: "AppToolbar", emits: ["settings"], template: '<button class="open-settings" @click="$emit(\'settings\')" />' };
+const ToolbarStub = { name: "AppToolbar", emits: ["settings", "switch-page"], template: '<button class="open-settings" @click="$emit(\'settings\')" />' };
 
 // At module scope, not inside a test. Measured on this file: the import was 2132ms while the
 // mount it feeds was 18ms — so the first test to run was billed two seconds of module loading
@@ -213,14 +213,14 @@ describe("GridView roster ordering (#720)", () => {
 // wiring for the roster ⇄ strip toggle.
 const ViewToggleToolbarStub = {
   name: "AppToolbar",
-  props: ["showViewToggle", "listMode"],
-  emits: ["toggle-view"],
-  template: '<button class="toggle-view" @click="$emit(\'toggle-view\')" />',
+  props: ["zoomed", "listMode"],
+  emits: ["set-list-mode"],
+  template: '<button class="toggle-view" @click="$emit(\'set-list-mode\', !listMode)" />',
 };
 const ListModeGridStub = { name: "TerminalGrid", props: ["listMode", "expandedUid"], template: '<div class="lm-stub" />' };
 
 describe("GridView view toggle wiring", () => {
-  it("shows the toggle only while zoomed and flips the grid's listMode when the header fires toggle-view", async () => {
+  it("shows the toggle only while zoomed and sets the grid's listMode when the header picks a view", async () => {
     localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: IDS.idleA, cwd: "/w" }], expanded: 10, page: 0, sortMode: "manual" }));
     const w = mount(GridView, {
       global: { stubs: { TerminalGrid: ListModeGridStub, AppToolbar: ViewToggleToolbarStub, SettingsModal: SettingsStub } },
@@ -229,7 +229,7 @@ describe("GridView view toggle wiring", () => {
     const toolbar = w.findComponent(ViewToggleToolbarStub);
     const grid = w.findComponent(ListModeGridStub);
     // A cell is expanded → the toggle is offered, and both surfaces start in roster (list) mode.
-    expect(toolbar.props("showViewToggle")).toBe(true);
+    expect(toolbar.props("zoomed")).toBe(true);
     expect(toolbar.props("listMode")).toBe(true);
     expect(grid.props("listMode")).toBe(true);
     // The header toggle flips roster → strip for the grid too.
@@ -245,7 +245,7 @@ describe("GridView view toggle wiring", () => {
       global: { stubs: { TerminalGrid: ListModeGridStub, AppToolbar: ViewToggleToolbarStub, SettingsModal: SettingsStub } },
     });
     await flushPromises();
-    expect(w.findComponent(ViewToggleToolbarStub).props("showViewToggle")).toBe(false);
+    expect(w.findComponent(ViewToggleToolbarStub).props("zoomed")).toBe(false);
     w.unmount();
   });
 });
@@ -606,9 +606,8 @@ describe("GridView keyboard shortcuts (#829)", () => {
     gridOf(w).vm.$emit("focus-cell", 0);
     await flushPromises();
 
-    const tabs = w.findAll('nav[aria-label="Grid tabs"] button');
-    expect(tabs.length).toBeGreaterThan(1);
-    await tabs[1].trigger("click"); // page 2, by hand — nothing there has the cursor
+    // The page buttons live in the toolbar's section bar now; it hands the grid a page number.
+    w.findComponent(ToolbarStub).vm.$emit("switch-page", 1); // page 2, by hand — nothing there has the cursor
     await flushPromises();
 
     await press("F5");
@@ -630,8 +629,7 @@ describe("GridView keyboard shortcuts (#829)", () => {
     gridOf(w).vm.$emit("focus-cell", 2);
     await flushPromises();
 
-    const tabs = w.findAll('nav[aria-label="Grid tabs"] button');
-    await tabs[0].trigger("click"); // page 1, which is already the page on screen
+    w.findComponent(ToolbarStub).vm.$emit("switch-page", 0); // page 1, which is already the page on screen
     await flushPromises();
 
     await press("F8");

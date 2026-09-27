@@ -134,7 +134,7 @@ async function forget(id: string): Promise<void> {
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-x-0 top-10 bottom-0 z-50 flex flex-col bg-deep" role="region" aria-label="Conversation rooms">
+  <div v-if="isOpen" class="fixed inset-x-0 top-[79px] bottom-0 z-50 flex flex-col bg-deep" role="region" aria-label="Conversation rooms">
     <header class="flex flex-none items-center gap-2.5 border-b border-border bg-panel px-4 py-2">
       <span class="text-[14px] font-[650] text-fg">Rooms</span>
       <span v-if="room" class="truncate font-mono text-[12px] text-dim">{{ room }}</span>

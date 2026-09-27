@@ -34,6 +34,7 @@ import GoogleAccountSection from "./settings/GoogleAccountSection.vue";
 import PrReposSection from "./settings/PrReposSection.vue";
 import LaunchersSection from "./settings/LaunchersSection.vue";
 import QuickCommandsSection from "./settings/QuickCommandsSection.vue";
+import PhoneSection from "./settings/PhoneSection.vue";
 import McpServersSection from "./settings/McpServersSection.vue";
 import CostSection from "./settings/CostSection.vue";
 import GitHubSection from "./settings/GitHubSection.vue";
@@ -58,7 +59,10 @@ import type { SoundMap } from "../composables/soundSettings";
 import type { SoundEmits } from "./settings/soundEmits";
 import type { BundledSkillName } from "../../common/bundledSkills";
 
-defineProps<{
+const props = defineProps<{
+  // Where the modal opens, when something outside it knows which section the user came for — the
+  // toolbar's phone status opens Phone link rather than leaving them to find it.
+  initialTab?: SettingsTabId | undefined;
   soundFile?: string | null;
   soundKinds?: NotifyKind[];
   sounds?: SoundMap;
@@ -95,7 +99,7 @@ const emit = defineEmits<
 const { t, locale } = useI18n();
 
 const modalEl = ref<HTMLElement>();
-const activeTab = ref<SettingsTabId>(DEFAULT_SETTINGS_TAB);
+const activeTab = ref<SettingsTabId>(props.initialTab ?? DEFAULT_SETTINGS_TAB);
 const SETTINGS_PANE_ID = "settings-pane";
 
 // Voice input is only worth a tab on a machine that can transcribe, and capability lives on the
@@ -353,6 +357,9 @@ useModalKeyboard({
               @update-sounds="emit('update-sounds', $event)"
               @launch-skill="askBeforeLaunch"
             />
+          </div>
+          <div v-if="visitedTabs.has('phone')" v-show="activeTab === 'phone'" data-testid="settings-pane-phone">
+            <PhoneSection />
           </div>
           <div v-if="visitedTabs.has('push')" v-show="activeTab === 'push'" data-testid="settings-pane-push">
             <WebPushSection

@@ -1,6 +1,6 @@
 // Wire the "the server may have come back / we returned to the tab" signals to a
 // self-heal callback, returning a cleanup that unregisters every listener. Kept out
-// of RemoteHostControl.vue so the trigger wiring is unit-testable without mounting
+// of the remote-host composable (useRemoteHost.ts) so the trigger wiring is unit-testable without mounting
 // the Firebase-importing component (mirrors the remoteHostSession.ts split).
 //
 // The heal itself is a no-op when already connected, so firing a trigger spuriously

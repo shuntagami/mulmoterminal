@@ -99,7 +99,7 @@ useEscapeToClose(isOpen, close);
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-x-0 top-10 bottom-0 z-50 bg-deep flex flex-col" role="region" aria-label="Wiki">
+  <div v-if="isOpen" class="fixed inset-x-0 top-[79px] bottom-0 z-50 bg-deep flex flex-col" role="region" aria-label="Wiki">
     <nav class="flex flex-none gap-1 border-b border-border bg-panel px-4 py-2" aria-label="Wiki sections">
       <button
         type="button"

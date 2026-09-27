@@ -75,7 +75,7 @@ useFaviconState(sessions);
 <template>
   <GridView />
   <!-- The full-screen overlays, on TOP of the grid rather than instead of it. Each is route-driven
-       and starts below the header (`top-10`), so the toolbar stays on screen and the view beneath
+       and starts below the two-tier header (`top-[79px]`), so the toolbar stays on screen and the view beneath
        one does not change while it is open (#1193). -->
   <!-- Full-screen collection / feed browser; shown when the toolbar's Collections door, an index
        card or a ref hop opens it (driven by useCollectionBrowse). -->
