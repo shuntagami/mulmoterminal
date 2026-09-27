@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mount, flushPromises } from "@vue/test-utils";
+import { mount, flushPromises, DOMWrapper } from "@vue/test-utils";
 import { h, nextTick, type VNode } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
 import { setCockpitLines } from "../../../src/composables/cockpitLines";
+import { connView } from "../../../src/composables/useTerminalConnections";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
 // The host drives the pane through reload()/confirmDiscard(); spies here are what let the
@@ -14,6 +15,12 @@ const paneStub = vi.hoisted(() => ({
   flush: vi.fn(async () => undefined),
   snapshot: vi.fn((): { openPath: string | null; expanded: string[]; showPreview?: boolean } => ({ openPath: "README.md", expanded: ["src"] })),
   showError: vi.fn(),
+}));
+// Only the roster menu's unread/read wire is replaced; everything else the grid calls stays real.
+const sendAttention = vi.hoisted(() => vi.fn());
+vi.mock("../../../src/composables/useTerminalConnections", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/composables/useTerminalConnections")>()),
+  sendAttention,
 }));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
   default: {
@@ -117,8 +124,12 @@ const rosterRow = (uid: number, over: Partial<CockpitRow> = {}): CockpitRow => (
   headerTextColor: null,
   iconUrl: null,
   parked: false,
+  parkable: true,
+  markable: true,
   ...over,
 });
+// The row menu is teleported to <body>, so its items are reached through the document.
+const menuItem = (id: string) => new DOMWrapper(document.querySelector(`[data-testid="${id}"]`) as Element);
 const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], listMode = true) =>
   mount(TerminalGrid, {
     props: {
@@ -251,14 +262,88 @@ describe("TerminalGrid (page renderer)", () => {
     expect(rows[0].classes()).not.toContain("opacity-45");
   });
 
-  // The drag is the one pointer route to a reorder, in every order mode: the ⋮ up/down menu that sat
-  // beside the handle was a second one to the same thing. The keyboard's is the command palette's.
-  it("offers no ⋮ reorder menu on cockpit rows", async () => {
+  // #2299: the ⋮ is the row's action menu, on every row whatever the sort. It carries no move items:
+  // the drag handle is the one pointer route to a reorder, in every order mode, and the command
+  // palette's "Move this terminal earlier / later" is the keyboard's.
+  it("puts a ⋮ menu on every cockpit row, with no move items in it", async () => {
     const w = mountCockpit([cell(0, "s0"), cell(1, "s1"), cell(2)], 0, [rosterRow(0), rosterRow(1)]);
     await nextTick();
-    expect(w.findAll('[data-testid="cockpit-row"]')).toHaveLength(2);
-    expect(w.find('[data-testid="cockpit-reorder"]').exists()).toBe(false);
+    expect(w.findAll('[data-testid="cockpit-row-menu"]')).toHaveLength(2);
+    await w.findAll('[data-testid="cockpit-row-menu"]')[1].trigger("click");
+    expect(document.querySelector('[data-testid="cockpit-row-menu-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="reorder-up"]')).toBeNull();
+    expect(document.querySelector('[data-testid="reorder-down"]')).toBeNull();
     w.unmount();
+  });
+
+  describe("cockpit row menu actions (#2299)", () => {
+    const cells = [cell(0, "s0"), cell(1, "s1")];
+    const openRowMenu = async (rows: CockpitRow[], index: number) => {
+      const w = mountCockpit(cells, 0, rows);
+      await nextTick();
+      await w.findAll('[data-testid="cockpit-row-menu"]')[index].trigger("click");
+      return w;
+    };
+    // The attention item is offered only while the cell's socket is open, so each test states it.
+    const setSlot = (uid: number, status: "connected" | "disconnected") =>
+      connView.set(`cell-${uid}`, { status, serverCwd: null, inCopyMode: false, heatLevel: 0, heatFinales: 0 });
+    beforeEach(() => {
+      sendAttention.mockClear();
+      setSlot(0, "connected");
+      setSlot(1, "connected");
+    });
+    afterEach(() => connView.clear());
+
+    it("marks an idle row unread on its own cell's socket, without enlarging it", async () => {
+      const w = await openRowMenu([rosterRow(0), rosterRow(1, { status: "idle" })], 1);
+      await menuItem("row-mark-unread").trigger("click");
+      expect(sendAttention).toHaveBeenCalledWith("cell-1", true);
+      expect(w.emitted("toggle-expand")).toBeUndefined();
+      w.unmount();
+    });
+
+    it("marks a finished row read", async () => {
+      const w = await openRowMenu([rosterRow(0), rosterRow(1, { status: "done" })], 1);
+      await menuItem("row-mark-read").trigger("click");
+      expect(sendAttention).toHaveBeenCalledWith("cell-1", false);
+      w.unmount();
+    });
+
+    it("offers nothing to mark while the row's socket is not open", async () => {
+      setSlot(1, "disconnected");
+      const w = await openRowMenu([rosterRow(0), rosterRow(1, { status: "done" })], 1);
+      expect(document.querySelector('[data-testid="row-mark-read"]')).toBeNull();
+      expect(document.querySelector('[data-testid="row-close"]')).not.toBeNull();
+      w.unmount();
+    });
+
+    it("offers nothing to mark on a row with no session", async () => {
+      const w = await openRowMenu([rosterRow(0), rosterRow(1, { markable: false })], 1);
+      expect(document.querySelector('[data-testid="row-mark-unread"]')).toBeNull();
+      w.unmount();
+    });
+
+    it("sets a row aside and closes it, tagged with its uid", async () => {
+      const w = await openRowMenu([rosterRow(0), rosterRow(1)], 1);
+      await menuItem("row-park").trigger("click");
+      expect(w.emitted("park")?.[0]).toEqual([1, true]);
+      await w.findAll('[data-testid="cockpit-row-menu"]')[1].trigger("click");
+      await menuItem("row-close").trigger("click");
+      expect(w.emitted("close")?.[0]).toEqual([1]);
+      expect(w.emitted("toggle-expand")).toBeUndefined();
+      w.unmount();
+    });
+
+    it("opens the same menu on a right-click of the row, for that row", async () => {
+      const w = mountCockpit(cells, 0, [rosterRow(0), rosterRow(1)]);
+      await nextTick();
+      await w.findAll('[data-testid="cockpit-row"]')[1].trigger("contextmenu", { clientX: 30, clientY: 40 });
+      await flushPromises();
+      expect(document.querySelectorAll('[data-testid="cockpit-row-menu-panel"]')).toHaveLength(1);
+      await menuItem("row-mark-unread").trigger("click");
+      expect(sendAttention).toHaveBeenCalledWith("cell-1", true);
+      w.unmount();
+    });
   });
 
   // #2126: the ⋮ moves a row one step, which is a lot of presses on a long roster. The handle drags

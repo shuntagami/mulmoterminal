@@ -621,5 +621,15 @@ export const zhCN: Messages = {
     commands: "搜索命令",
     movedToManual: "已将排序切换为“手动”",
   },
+  rowMenu: {
+    trigger: "此终端的操作",
+    title: "操作",
+    markUnread: "标为未读",
+    markUnreadHint: "重新显示待查看的颜色",
+    markRead: "标为已读",
+    setAside: "暂放一边",
+    wake: "唤醒",
+    close: "关闭",
+  },
   blueprints: blueprintsZhCN,
 };

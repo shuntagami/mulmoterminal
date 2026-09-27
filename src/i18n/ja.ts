@@ -637,5 +637,15 @@ export const ja: Messages = {
     commands: "コマンドを検索",
     movedToManual: "並び順を「手動」に切り替えました",
   },
+  rowMenu: {
+    trigger: "このセルの操作",
+    title: "操作",
+    markUnread: "未読にする",
+    markUnreadHint: "確認待ちの色を付け直す",
+    markRead: "既読にする",
+    setAside: "脇に置く",
+    wake: "起こす",
+    close: "閉じる",
+  },
   blueprints: blueprintsJa,
 };

@@ -634,5 +634,15 @@ export const ko: Messages = {
     commands: "명령 검색",
     movedToManual: "정렬을 '수동'으로 바꿨습니다",
   },
+  rowMenu: {
+    trigger: "이 터미널 작업",
+    title: "작업",
+    markUnread: "읽지 않음으로 표시",
+    markUnreadHint: "확인 대기 색을 다시 표시합니다",
+    markRead: "읽음으로 표시",
+    setAside: "옆으로 치우기",
+    wake: "깨우기",
+    close: "닫기",
+  },
   blueprints: blueprintsKo,
 };

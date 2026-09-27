@@ -626,5 +626,15 @@ export const zhTW: Messages = {
     commands: "搜尋指令",
     movedToManual: "已將排序切換為「手動」",
   },
+  rowMenu: {
+    trigger: "此終端機的操作",
+    title: "操作",
+    markUnread: "標為未讀",
+    markUnreadHint: "重新顯示待查看的顏色",
+    markRead: "標為已讀",
+    setAside: "暫放一旁",
+    wake: "喚醒",
+    close: "關閉",
+  },
   blueprints: blueprintsZhTW,
 };

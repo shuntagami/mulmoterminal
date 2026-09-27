@@ -657,5 +657,16 @@ export const en = {
     commands: "Search commands",
     movedToManual: "Switched the order to Manual",
   },
+  // The cockpit roster row's ⋮ menu (#2299).
+  rowMenu: {
+    trigger: "Actions for this terminal",
+    title: "Actions",
+    markUnread: "Mark unread",
+    markUnreadHint: "Show it as finished again, to come back to it later",
+    markRead: "Mark read",
+    setAside: "Set aside",
+    wake: "Wake",
+    close: "Close",
+  },
   blueprints: blueprintsEn,
 } as const;
