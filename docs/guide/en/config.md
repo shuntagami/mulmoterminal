@@ -28,6 +28,7 @@ description: Configuring MulmoTerminal — the settings modal, per-project colou
 | Run on **a model other than Claude** | [Providers](#providers) |
 | Start Claude Code through **your own command** (`ollama launch claude …`) | [Custom agents](#custom-agents) |
 | Run some cells on **another subscription** (a second Claude Code / Codex login) | [Accounts](#accounts) |
+| Put **something of your own beside a file** — review comments, lint findings | [Your own page beside a file](#file-panels) |
 | Add **your own button** to the header | [Customizing the header](#header) |
 | Recolour the whole app **your way** | [Make your own colour scheme](#custom-themes) |
 | Tell an issue **you have started on it** | [issueWorkComments](#issue-work-comments) |
@@ -1945,6 +1946,86 @@ on the default login does.
 
 → `/mulmoterminal-model` writes this for you.
 
+## Your own page beside a file (`filePanels`) {#file-panels}
+
+*You want something of your own next to the text you are editing — a client's review comments, your
+linter's findings, a glossary check — and you want it to point at lines.*
+
+A **file panel** is a page you write, shown beside the editor in the Files pane. MulmoTerminal gives
+it five abilities and knows nothing else about it:
+
+- learn which file is open, and its text;
+- **mark lines** in the editor's gutter;
+- move the editor to a line;
+- ask **its own command** a question — how it reaches a database, an API, anything outside;
+- put text at the prompt of the terminal beside the pane (you press Enter).
+
+```json
+{
+  "filePanels": [
+    {
+      "id": "comments",
+      "label": "Comments",
+      "extensions": ["md"],
+      "page": "/Users/you/panels/comments-panel.html",
+      "command": "node /Users/you/panels/comments-command.mjs"
+    }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `id` | A lowercase name for the panel (`a-z`, `0-9`, `-`, `_`). |
+| `label` | The frame's name. Defaults to the id. |
+| `extensions` | Which files it sits beside, without the dot. **Name them** — left out, the page loads for every text file you open. |
+| `page` | **Absolute** path of one HTML file. |
+| `command` | Optional. The command line that answers the page's questions. Split on spaces with quotes honoured; **nothing expands**, so write `/Users/you/…`, not `~/…`. |
+
+Up to four. Saved changes apply to the next file you open — no restart.
+
+**Try it in two minutes.** The repository ships a complete panel — review comments with replies,
+resolve and a hand-off to the agent — built on nothing but this:
+
+1. Point `page` and `command` at
+   [`samples/file-panel/comments-panel.html`](https://github.com/receptron/mulmoterminal/blob/main/samples/file-panel/comments-panel.html)
+   and
+   [`comments-command.mjs`](https://github.com/receptron/mulmoterminal/blob/main/samples/file-panel/comments-command.mjs)
+   in your clone, by absolute path.
+2. Beside any `notes.md`, create `notes.md.comments.json`:
+   ```json
+   { "threads": [{ "id": "t1", "author": "Client", "quote": "a passage from notes.md", "body": "Too long." }] }
+   ```
+3. Open `notes.md` in the Files pane, **in Edit — not Preview**. The passage is tinted, a mark sits
+   in the gutter, and the panel is on the right.
+
+**Where it appears.** Beside the *source* of a covered file — in the right pane next to an enlarged
+cell, and in the full-screen Files view. Not in Preview: marks hang on the editor's lines. And a
+panel takes room only when its page asks to, so a file it has nothing to say about looks as it
+always did.
+
+**Why you can't see your panel.** In order of likelihood:
+
+1. The file is in **Preview**. Switch to Edit.
+2. The file's extension is not in the panel's `extensions`.
+3. The page has not asked to be shown — that is the page's decision (`show`).
+4. The entry was dropped on load: a `page` that is not an absolute path, or an `id` with capitals
+   or spaces. `curl -s "http://localhost:34567/api/config" | jq .filePanels` shows what was kept.
+
+**Writing one.** The page talks to the app with `postMessage` — six things it can say, four it can
+hear — and its command reads one JSON request on stdin and prints one JSON answer. The whole
+contract is one page:
+[`docs/file-panels.md`](https://github.com/receptron/mulmoterminal/blob/main/docs/file-panels.md).
+
+Three things that are deliberate:
+
+- **This key is global only.** It cannot go in a project's `.mulmoterminal.json`: that file arrives
+  with a clone, and a panel loads just because a file was opened.
+- **The page has no network.** It is sandboxed: no `fetch`, nothing loaded from elsewhere, no access
+  to MulmoTerminal's own API. Anything outside the browser goes through its command.
+- **Keep tokens out of the config and out of the page.** The browser can read both. The command
+  reads its token from its own file, or from the environment the server was started in.
+
 ## Which clone made this PR (`prWorkdirFooter`) {#pr-workdir-footer}
 
 If you keep several checkouts of the same repo side by side — `myrepo`, `myrepo2`, `myrepo3` —
@@ -2172,6 +2253,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |
 | `customAgents` | Your own commands for starting Claude Code, offered in the Agent Picker (→ [Custom agents](#custom-agents)) |
+| `filePanels` | Your own pages beside a file in the Files pane, each with a command it may ask (→ [Your own page beside a file](#file-panels)) |
 | `soundFile` | The fallback notification sound for every kind (absolute path to an audio file; also settable from the modal) |
 | `soundKinds` | Which moments beep. Omit to keep `["finished","waiting"]`; the four added in 2.2 are opt-in, `[]` for silence (→ [Notification sounds](#sounds)) |
 | `sounds` | Per-kind sound, e.g. `{ "waiting": "preset:coin" }` — a `preset:<id>` or an absolute path. A kind with no entry uses `soundFile` (→ [Notification sounds](#sounds)) |

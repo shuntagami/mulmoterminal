@@ -28,6 +28,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | **Claude 以外のモデル**で動かしたい | [プロバイダ](#providers) |
 | **自分のコマンド**で Claude Code を起動したい（`ollama launch claude …`） | [カスタムエージェント](#custom-agents) |
 | 一部のセルを**別の契約**（別の Claude Code / Codex のログイン）で動かしたい | [アカウント](#accounts) |
+| **自分のもの**（レビューコメント、lint の指摘）を**ファイルの横**に出したい | [自分のページをファイルの横に置く](#file-panels) |
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
 | **自分の配色**でアプリ全体を染めたい | [自分の配色を作る](#custom-themes) |
 | issue に**着手を知らせたい** | [issueWorkComments](#issue-work-comments) |
@@ -1839,6 +1840,85 @@ Claude Code は、ログイン・会話記録・設定を 1 つのディレク�
 
 → `/mulmoterminal-model` がこれを書いてくれます。
 
+## 自分のページをファイルの横に置く（`filePanels`） {#file-panels}
+
+*編集しているテキストの横に、自分のものを置きたい — クライアントのレビューコメント、lint の指摘、
+用語チェック。しかも行を指してほしい。*
+
+**ファイルパネル** は、あなたが書いたページを Files ペインのエディタの横に出す仕組みです。
+MulmoTerminal が渡すのは次の 5 つの能力だけで、それが何のためのページかは知りません。
+
+- 開いているファイルと、その内容を知る
+- エディタの行番号の横に **印を付ける**
+- エディタをある行へ動かす
+- **自分のコマンド** に尋ねる — データベースや API など、外に出る唯一の道
+- ペインの隣のターミナルの入力欄に文字を入れる（Enter を押すのはあなた）
+
+```json
+{
+  "filePanels": [
+    {
+      "id": "comments",
+      "label": "Comments",
+      "extensions": ["md"],
+      "page": "/Users/you/panels/comments-panel.html",
+      "command": "node /Users/you/panels/comments-command.mjs"
+    }
+  ]
+}
+```
+
+| フィールド | |
+|---|---|
+| `id` | パネルの名前。小文字の英数字と `-` `_`。 |
+| `label` | 枠の名前。省くと id。 |
+| `extensions` | どのファイルの横に出すか。ドットなしの拡張子。**必ず書いてください** — 省くと、開いたテキストファイルすべてでページが読み込まれます。 |
+| `page` | HTML ファイル 1 つの **絶対パス**。 |
+| `command` | 省略可。ページの質問に答えるコマンドライン。空白で区切り、引用符は効きます。**展開は一切しません**。`~/…` ではなく `/Users/you/…` と書いてください。 |
+
+4 つまで。保存した変更は、次に開いたファイルから効きます。再起動は要りません。
+
+**2 分で試す。** リポジトリには、この仕組みだけで作った完成品のパネル（レビューコメントの表示・返信・
+対応済み・エージェントへの受け渡し）が入っています。
+
+1. `page` と `command` を、クローンした先の
+   [`samples/file-panel/comments-panel.html`](https://github.com/receptron/mulmoterminal/blob/main/samples/file-panel/comments-panel.html)
+   と
+   [`comments-command.mjs`](https://github.com/receptron/mulmoterminal/blob/main/samples/file-panel/comments-command.mjs)
+   に、絶対パスで向けます。
+2. 適当な `notes.md` の隣に `notes.md.comments.json` を作ります。
+   ```json
+   { "threads": [{ "id": "t1", "author": "Client", "quote": "notes.md の中の一節", "body": "長すぎます。" }] }
+   ```
+3. `notes.md` を Files ペインで **Edit（Preview ではなく）** で開きます。該当箇所に色が付き、行番号の横に
+   印が出て、右にパネルが出ます。
+
+**どこに出るか。** 対象のファイルの *ソース* の横です。拡大したセルの隣の右ペインと、全画面の Files
+ビューの両方。Preview には出ません。印はエディタの行に付くものだからです。また、パネルが幅を取るのは
+ページがそう頼んだときだけなので、言うことのないファイルはこれまでどおりに見えます。
+
+**パネルが見えないとき。** ありがちな順に:
+
+1. **Preview** で開いている。Edit に切り替えてください。
+2. ファイルの拡張子が、パネルの `extensions` に入っていない。
+3. ページが「表示して」と頼んでいない — これはページ側の判断です（`show`）。
+4. 読み込み時にエントリが落とされた（`page` が絶対パスでない、`id` に大文字や空白がある）。
+   `curl -s "http://localhost:34567/api/config" | jq .filePanels` で、残ったものが分かります。
+
+**パネルを書く。** ページは `postMessage` で本体と話します（言えることが 6 つ、聞くことが 4 つ）。
+コマンドは stdin から JSON の依頼を 1 つ読み、JSON の答えを 1 つ出します。取り決めは 1 ページに
+まとまっています:
+[`docs/file-panels.md`](https://github.com/receptron/mulmoterminal/blob/main/docs/file-panels.md)。
+
+わざとそうしている点が 3 つあります:
+
+- **このキーはグローバル設定だけ。** プロジェクトの `.mulmoterminal.json` には書けません。あのファイルは
+  クローンと一緒に届きますが、パネルはファイルを開いただけで読み込まれるからです。
+- **ページはネットワークに出られません。** 隔離されていて、`fetch` も、よそからの読み込みも、
+  MulmoTerminal 自身の API も使えません。ブラウザの外に出るものは、すべてコマンドを通します。
+- **トークンを設定にもページにも書かない。** どちらもブラウザから読めます。コマンドが、自分のファイルか、
+  サーバを起動した環境の環境変数からトークンを読んでください。
+
 ## この PR はどのクローンの作業か（`prWorkdirFooter`） {#pr-workdir-footer}
 
 同じリポジトリのクローンを `myrepo`, `myrepo2`, `myrepo3` … と並べて使っていると、GitHub 上の
@@ -2058,6 +2138,7 @@ posted by MulmoTerminal
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |
 | `customAgents` | Claude Code を起動する自分のコマンド。Agent Picker に並びます（→ [カスタムエージェント](#custom-agents)） |
+| `filePanels` | Files ペインでファイルの横に出す自分のページと、そのページが尋ねるコマンド（→ [自分のページをファイルの横に置く](#file-panels)） |
 | `soundFile` | 全種類共通のフォールバック通知音（音声ファイルの絶対パス。設定モーダルからも変更可） |
 | `soundKinds` | どの瞬間に鳴らすか。**書かなければ** `["finished","waiting"]`、2.2 で増えた4種は opt-in、`[]` で無音（→ [通知音](#sounds)） |
 | `sounds` | 種類ごとの音。例 `{ "waiting": "preset:coin" }` — `preset:<id>` か絶対パス。未指定の種類は `soundFile` を使う（→ [通知音](#sounds)） |

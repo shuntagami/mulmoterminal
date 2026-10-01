@@ -1,0 +1,290 @@
+<!doctype html>
+<!--
+  The page half of the sample file panel: review comments beside a file, built ENTIRELY on the
+  file-panel port (docs/file-panels.md). The app knows nothing about comments — everything that
+  makes this a comments panel is in this file and in comments-command.mjs beside it.
+
+  Declare it in ~/.mulmoterminal/config.json (absolute paths; nothing in them expands):
+
+    { "filePanels": [ { "id": "comments", "label": "Comments", "extensions": ["md"],
+        "page": "/abs/path/to/comments-panel.html",
+        "command": "node /abs/path/to/comments-command.mjs" } ] }
+
+  The page is sandboxed with no network. It talks to the app by message, and to the outside only
+  through its command. The dozen lines under "the port" are all there is to the wire.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Comments</title>
+    <style>
+      :root {
+        --bg: #fff;
+        --fg: #222;
+        --muted: #666;
+        --subtle: #f3f3f3;
+        --border: #ddd;
+        --link: #36c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.5 system-ui,
+          sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      header strong {
+        flex: auto;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .thread {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .thread.active {
+        background: var(--subtle);
+      }
+      .where {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--muted);
+        font: inherit;
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+      blockquote {
+        margin: 4px 0;
+        padding-left: 8px;
+        border-left: 2px solid var(--link);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .comment {
+        margin-top: 6px;
+      }
+      .comment.reply {
+        margin-left: 12px;
+      }
+      .body {
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      textarea {
+        width: 100%;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--subtle);
+        color: var(--fg);
+        font: inherit;
+        resize: vertical;
+      }
+      .actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      button.act {
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button.act:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #error {
+        display: none;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border);
+        color: #c33;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header><strong>Comments</strong><span id="count" class="muted"></span></header>
+    <div id="error" role="alert"></div>
+    <div id="threads"></div>
+    <script>
+      // ---- the port -------------------------------------------------------------------------
+      const TO_HOST = "mulmoterminal-file-panel";
+      const FROM_HOST = "mulmoterminal-file-panel-host";
+      const send = (message) => parent.postMessage({ source: TO_HOST, ...message }, "*");
+      const waiting = new Map();
+      let nextRequest = 0;
+      /** Ask this panel's command. Resolves with its JSON answer; rejects when it gave none. */
+      const ask = (payload) =>
+        new Promise((resolve, reject) => {
+          const requestId = `r${(nextRequest += 1)}`;
+          waiting.set(requestId, { resolve, reject });
+          send({ kind: "request", requestId, payload });
+        });
+      window.addEventListener("message", (event) => {
+        if (event.source !== parent || event.data?.source !== FROM_HOST) return;
+        const message = event.data;
+        if (message.kind === "file") onFile(message);
+        else if (message.kind === "mark-lines") onMarkLines(message.lines);
+        else if (message.kind === "mark-clicked") onMarkClicked(message.id);
+        else if (message.kind === "response") {
+          const asked = waiting.get(message.requestId);
+          waiting.delete(message.requestId);
+          if (message.ok) asked?.resolve(message.result);
+          else asked?.reject(new Error(message.error));
+        }
+      });
+
+      // ---- the feature: everything below is this panel's own ---------------------------------
+      let file = null;
+      let threads = [];
+      let lines = {}; // where each mark is NOW, as the reader's typing moves it
+      let active = null;
+      let replySeq = 0;
+      const drafts = new Map();
+
+      const el = (tag, className, text) => {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text; // never innerHTML: these are other people's words
+        return node;
+      };
+      const showError = (text) => {
+        const box = document.getElementById("error");
+        box.textContent = text ?? "";
+        box.style.display = text ? "block" : "none";
+      };
+      const when = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "");
+
+      function adopt(answer) {
+        showError(answer?.error ?? null);
+        if (!Array.isArray(answer?.threads)) return;
+        threads = answer.threads;
+        lines = {};
+        const marks = threads
+          .filter((thread) => Number.isInteger(thread.line))
+          .map((thread) => ({ id: thread.id, line: thread.line, endLine: thread.endLine }));
+        send({ kind: "marks", marks });
+        // Take room only when there is something to say about THIS file.
+        send({ kind: "show", visible: threads.length > 0 });
+        render();
+      }
+
+      async function run(payload) {
+        const asked = file.path;
+        try {
+          const answer = await ask(payload);
+          if (asked === file.path) adopt(answer); // an answer for a file that is no longer open is dropped
+        } catch (error) {
+          showError(error.message);
+        }
+      }
+
+      function onFile(message) {
+        file = message.file;
+        if (message.theme) for (const [name, value] of Object.entries(message.theme)) document.documentElement.style.setProperty(`--${name}`, value);
+        void run({ op: "list" });
+      }
+      function onMarkLines(next) {
+        lines = next;
+        render();
+      }
+      function onMarkClicked(id) {
+        active = id;
+        render();
+        document.querySelector(`[data-thread="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" });
+      }
+
+      function commentNode(comment, isReply) {
+        const node = el("div", isReply ? "comment reply" : "comment");
+        node.append(el("div", "muted", `${comment.author ?? ""} ${when(comment.createdAt)}`), el("p", "body", comment.body ?? ""));
+        return node;
+      }
+
+      // What "Ask the agent" puts at the terminal's prompt. The reader sends it, or rewords it first.
+      function requestFor(thread, line) {
+        const where = line ? `line ${line}` : "position unknown";
+        const quote = thread.quote ? `\n   Quote: "${thread.quote.replace(/\n/g, " ")}"` : "";
+        return `${file.reference} has a review comment. Address it in the file, then say what you changed.\n\n- ${where} — ${thread.author} / id: ${thread.id}${quote}\n   ${thread.body.replace(/\n/g, "\n   ")}`;
+      }
+
+      function threadNode(thread) {
+        const line = lines[thread.id] ?? thread.line ?? null;
+        const node = el("article", thread.id === active ? "thread active" : "thread");
+        node.dataset.thread = thread.id;
+        const where = el("button", "where", line ? `Line ${line}` : "Not found in this text");
+        where.type = "button";
+        where.addEventListener("click", () => {
+          active = thread.id;
+          if (line) send({ kind: "reveal", line });
+          render();
+        });
+        node.append(where);
+        if (thread.quote) node.append(el("blockquote", "", thread.quote));
+        node.append(commentNode(thread, false), ...(thread.replies ?? []).map((reply) => commentNode(reply, true)));
+
+        const box = el("textarea");
+        box.rows = 2;
+        box.placeholder = "Write a reply…";
+        box.value = drafts.get(thread.id)?.body ?? "";
+        box.addEventListener("input", () => drafts.set(thread.id, { body: box.value, replyId: `${Date.now()}-${(replySeq += 1)}` }));
+        const sendReply = () => {
+          const draft = drafts.get(thread.id);
+          if (!draft?.body.trim()) return;
+          drafts.delete(thread.id);
+          void run({ op: "reply", threadId: thread.id, body: draft.body, replyId: draft.replyId });
+        };
+        box.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) sendReply();
+        });
+
+        const actions = el("div", "actions");
+        const button = (label, onClick) => {
+          const made = el("button", "act", label);
+          made.type = "button";
+          made.addEventListener("click", onClick);
+          return made;
+        };
+        actions.append(
+          button("Reply", sendReply),
+          button("Resolve", () => void run({ op: "resolve", threadId: thread.id })),
+        );
+        // `reference` is null when there is no terminal beside the pane — then there is nowhere to put it.
+        if (file?.reference) actions.append(button("Ask the agent", () => send({ kind: "insert", text: requestFor(thread, line) })));
+        node.append(box, actions);
+        return node;
+      }
+
+      function render() {
+        document.getElementById("count").textContent = `${threads.length} open`;
+        document.getElementById("threads").replaceChildren(...threads.map(threadNode));
+      }
+
+      send({ kind: "ready" });
+    </script>
+  </body>
+</html>

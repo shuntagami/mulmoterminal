@@ -50,6 +50,8 @@ export function fakeCmEditor(doc = "", caret: CaretAt | null = null, topLine: nu
     selectedLines: vi.fn(() => null),
     setOriginal: vi.fn(),
     setShowChanges: vi.fn(),
+    setLineMarks: vi.fn(),
+    lineMarkLine: vi.fn(() => null),
     destroy: vi.fn(),
   };
   return editor as CmEditorDouble;

@@ -27,6 +27,7 @@ import { type HeaderConfig } from "./header-config.js";
 import { type CwdPreset, type Launcher, type Provider, type UserMcpServer } from "./config-schema.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 import type { CustomAgent } from "../../common/customAgents.js";
+import type { FilePanel } from "../../common/filePanels.js";
 import type { AgentAccount } from "../../common/agentAccounts.js";
 import type { PlayfulEffects } from "../../common/playfulEffects.js";
 import { systemTaskSettingsChanged } from "./system-task-settings.js";
@@ -108,6 +109,13 @@ export function getLaunchers(): Launcher[] {
 // so adding one needs no restart. The LIST is the allowlist; the browser sends only an id.
 export function getCustomAgents(): CustomAgent[] {
   return config.customAgents;
+}
+
+// The user's own pages beside a file (common/filePanels.ts) — read live, so a panel added to
+// config.json is there for the next file opened. The LIST is the allowlist here too: the browser
+// names a panel by id and never sends a path or a command.
+export function getFilePanels(): FilePanel[] {
+  return config.filePanels;
 }
 
 // Second logins for claude / codex (#2215). Read live like the custom agents: a new session is

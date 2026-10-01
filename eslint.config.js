@@ -483,7 +483,10 @@ export default [
     // a target either — `postMessage` takes a URL and "null" is not one, so `"*"` is the only
     // spelling there is (#2157). It listens through the helper above rather than repeating the
     // source check, so what remains in that file is one `postMessage` and the reply it carries.
-    files: ["src/utils/sharedAppPreviewChannel.ts", "src/composables/useMdPreviewScroll.ts"],
+    //
+    // The third is the same reply into another opaque frame: a file panel's page (common/filePanels.ts).
+    // It holds that one `postMessage` and nothing else.
+    files: ["src/utils/sharedAppPreviewChannel.ts", "src/composables/useMdPreviewScroll.ts", "src/utils/filePanelFrame.ts"],
     rules: {
       "sonarjs/post-message": "off",
     },

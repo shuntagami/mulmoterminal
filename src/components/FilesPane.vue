@@ -52,6 +52,9 @@ import { useFileHistory } from "../composables/useFileHistory";
 import { useRequestedOpen } from "../composables/useRequestedOpen";
 import FilesHistoryMenu from "./FilesHistoryMenu.vue";
 import FilesComparingBanner from "./FilesComparingBanner.vue";
+import FilesConflictBanner from "./FilesConflictBanner.vue";
+import FilePanels from "./FilePanels.vue";
+import { useFilesPanePanels } from "../composables/useFilesPanePanels";
 
 const { t } = useI18n();
 
@@ -160,6 +163,9 @@ async function insertSelection(): Promise<boolean> {
   if (text !== null) emit("insert-text", text);
   return text !== null;
 }
+
+// The user's own pages beside the open file (common/filePanels.ts).
+const panels = useFilesPanePanels(file, () => props, emit);
 
 /** What picking one does — the other end that belongs to this pane, because it emits. */
 function runRowAction(action: FilesRowAction): void {
@@ -675,29 +681,7 @@ defineExpose({
         @keydown="onTreeSplitterKey"
       />
       <section class="relative flex min-w-0 flex-auto">
-        <div
-          v-if="conflict"
-          role="alert"
-          data-testid="files-conflict"
-          class="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-amber bg-[var(--warn-bg-subtle)] px-4 py-2 text-[13px] text-warn"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">warning</span>
-          <span class="flex-auto">This file changed on disk. Nothing was saved — your version is kept as a backup either way.</span>
-          <button
-            type="button"
-            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
-            @click="discardAndReload"
-          >
-            Reload (discard your edits)
-          </button>
-          <button
-            type="button"
-            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
-            @click="overwrite"
-          >
-            Overwrite anyway
-          </button>
-        </div>
+        <FilesConflictBanner v-if="conflict" @reload="discardAndReload" @overwrite="overwrite" />
         <!-- `role="alert"`, like the conflict banner above it: every message here lands AFTER an
              action the user started (a save, a read, a Canvas open that the server refused), so a
              reader who is not looking at this pane learns nothing without a live region — which is
@@ -753,6 +737,8 @@ defineExpose({
           :title="previewKind === 'markdown' ? t('tips.panes.markdownPreview') : t('tips.panes.filePreview')"
         />
         <div v-show="openPath && !unpreviewable && !showPreview" ref="editorHost" :class="sideBySide.editorClass.value" />
+        <!-- `order-last` keeps it at the edge when side-by-side reorders the editor and the Preview. -->
+        <FilePanels v-if="panels" class="order-last" v-bind="panels" />
       </section>
     </div>
     <FileFinder v-if="finderOpen" :cwd="cwd" :seed="finderSeed" @pick="onFinderPick" @close="closeFinder" />

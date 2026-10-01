@@ -17,7 +17,7 @@ import { mountFilesBrowseRoutes } from "../files/files-browse.js";
 import { mountTmuxRoutes } from "../infra/tmux-routes.js";
 import { survivingSessions } from "../session/surviving-sessions.js";
 import { armedReapIntervalHours } from "../session/reap-schedule.js";
-import { getSessionIdleReapDays, getQuestionPaneEnabled } from "../config/config-routes.js";
+import { getSessionIdleReapDays, getQuestionPaneEnabled, getFilePanels } from "../config/config-routes.js";
 import { sweepIdleSessions } from "../session/reap-idle-sessions.js";
 import { mountHookRoute } from "../routes/hook-routes.js";
 import { mountPluginRoutes } from "../routes/plugin-routes.js";
@@ -360,7 +360,7 @@ const toolRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountToolRoutes>[1
 function mountBrowserFileWrites(app: Express, publish: AppRouteDeps["publish"]): void {
   const backupRoot = path.join(MULMOTERMINAL_HOME, "backups");
   const onDirConfigWritten = (cwd: string) => publish(DIR_CONFIG_CHANNEL, { cwd });
-  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot, onDirConfigWritten });
+  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot, onDirConfigWritten, filePanels: getFilePanels });
   mountDirConfigWriteRoute(app, { backupRoot, onDirConfigWritten });
   mountDirConfigEntriesRoute(app, { backupRoot, onDirConfigWritten });
 }
