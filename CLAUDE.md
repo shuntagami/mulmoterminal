@@ -93,6 +93,29 @@ So "make both surfaces render the same" is a containment decision before it is a
 Read [`docs/file-surfaces.md`](docs/file-surfaces.md) before moving a renderer between surfaces
 or unifying two of them.
 
+## A file panel is a port, and the feature lives on the other side of it
+
+The Files pane can host the user's own page beside the editor — a **file panel**. The page can
+learn which file is open, mark lines, move the editor, ask its own command a question, and put text
+at the terminal's prompt. That is the whole port; the contract is `common/filePanels.ts`, in prose
+at [`docs/file-panels.md`](docs/file-panels.md).
+
+What a panel is FOR — review comments, lint findings, translation notes — is not known to this
+repo, and that is the design. The first attempt at this got it wrong in an instructive way: it made
+the comment SOURCE pluggable and built threads, replies and resolve into the app, so the app owned
+one user's feature. If you find yourself adding a word like "comment" or "thread" under `common/`,
+`server/` or `src/` for this, the port is being asked for something it cannot yet express — widen
+the port for every panel, or keep the feature in the page.
+
+Three rules that look like oversights and are not:
+
+- **Global config only.** Do not add `filePanels` to `.mulmoterminal.json`: that file arrives with
+  a clone, and a panel's page loads and its command runs because a file was OPENED.
+- **The page has no network.** It is opaque-origin under `default-src 'none'`, and reaches the
+  outside only through its declared command. Do not add `connect-src`, and do not hand it a token.
+- **The page places a mark; the editor only carries it.** The wire has a line and an id. Mapping
+  an old position to the current text needs the source's own history, which this app does not have.
+
 ## The grid has three view modes — read before changing anything a cell renders
 
 `TerminalGrid.vue` is ONE `.stage` in three CSS states: the **tiled grid** (`!zoomed`), the

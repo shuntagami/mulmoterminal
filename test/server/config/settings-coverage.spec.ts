@@ -41,6 +41,9 @@ const REACHABLE_BY: Record<string, Reachable> = {
   repoDirs: { ui: true },
   launchers: { ui: true },
   customAgents: { ui: true, skill: "mulmoterminal-model" },
+  // No Settings control on purpose: an entry names a page this app will load and a command this
+  // server will run, so it is written by hand or by the config skill.
+  filePanels: { skill: CONFIG_SKILL },
   // Beside customAgents in the same skill: both change how a cell's CLI is started (#2215).
   accounts: { ui: true, skill: "mulmoterminal-model" },
   // Half of it is a start-up decision (it gates whether the app runs without Claude Code at all), so

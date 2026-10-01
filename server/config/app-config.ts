@@ -29,6 +29,7 @@ import {
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
+import { sanitizeFilePanels, type FilePanel } from "../../common/filePanels.js";
 import { CUSTOM_AGENT_COMMAND_MAX, CUSTOM_AGENT_LABEL_MAX, CUSTOM_AGENTS_MAX, isCustomAgentId, type CustomAgent } from "../../common/customAgents.js";
 import { sanitizePaletteAliases, sanitizePaletteFavorites, type PaletteAliases } from "../../common/paletteConfig.js";
 import { ACCOUNT_HOME_MAX, ACCOUNT_LABEL_MAX, ACCOUNTS_MAX, isAccountHome, isAccountId, type AgentAccount } from "../../common/agentAccounts.js";
@@ -87,6 +88,9 @@ export interface AppConfig {
   // entry's command, so the session resumes, reports cost, and reaches the GUI tools like any
   // other Claude cell — see common/customAgents.ts.
   customAgents: CustomAgent[];
+  // The user's own pages that sit beside a file in the Files pane, and the command each may ask.
+  // Global only, on purpose: see common/filePanels.ts.
+  filePanels: FilePanel[];
   // The command palette's short names for rows and the rows pinned first (#2540), by row key.
   paletteAliases: PaletteAliases;
   paletteFavorites: string[];
@@ -540,6 +544,7 @@ export const emptyConfig = (): AppConfig => ({
   repoDirs: {},
   launchers: [],
   customAgents: [],
+  filePanels: [],
   paletteAliases: {},
   paletteFavorites: [],
   accounts: [],
@@ -641,6 +646,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     repoDirs: sanitizeRepoDirs(o.repoDirs),
     launchers: sanitizeLaunchers(o.launchers),
     customAgents: sanitizeCustomAgents(o.customAgents),
+    filePanels: sanitizeFilePanels(o.filePanels),
     paletteAliases: sanitizePaletteAliases(o.paletteAliases),
     paletteFavorites: sanitizePaletteFavorites(o.paletteFavorites),
     accounts: sanitizeAccounts(o.accounts),
@@ -770,6 +776,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     repoDirs: updated("repoDirs", sanitizeRepoDirs, base.repoDirs),
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     customAgents: updated("customAgents", sanitizeCustomAgents, base.customAgents),
+    filePanels: updated("filePanels", sanitizeFilePanels, base.filePanels),
     paletteAliases: updated("paletteAliases", sanitizePaletteAliases, base.paletteAliases),
     paletteFavorites: updated("paletteFavorites", sanitizePaletteFavorites, base.paletteFavorites),
     accounts: updated("accounts", sanitizeAccounts, base.accounts),
@@ -825,6 +832,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     repoDirs: config.repoDirs,
     launchers: config.launchers,
     customAgents: config.customAgents,
+    filePanels: config.filePanels,
     paletteAliases: config.paletteAliases,
     paletteFavorites: config.paletteFavorites,
     accounts: config.accounts,

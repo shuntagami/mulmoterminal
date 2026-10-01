@@ -45,6 +45,7 @@ running), `mulmoterminal-notify` for the sounds. Route rather than editing the g
 | Which agent a **new cell** opens on, or starting at all **without Claude Code** installed (`defaultAgent`, `--agent`) | `mulmoterminal-model` |
 | Which moments beep or push, and what they play | `mulmoterminal-notify` |
 | Work comments on an issue, the PR clone footer, the closing summary, the decision digest, the dev-work log, roster row length, a self-hosted GitLab | **stay here** — [the settings that live here](#the-settings-that-live-here) |
+| Their **own page beside a file** in the Files pane — review comments, lint findings, notes (`filePanels`) | **stay here** — [the settings that live here](#the-settings-that-live-here) |
 | Something is broken and they don't know which setting | **Audit first** (below), then route |
 
 If the request already names an area, skip the question. "Make this project blue" goes straight to
@@ -145,7 +146,7 @@ State these when they matter; they are the ones that cost people an afternoon.
 
 ## The settings that live here
 
-None is big enough to warrant its own skill. **All of them also have a Settings control** (`skills` and `decks` per project, in Settings → Directory settings → Change here) — offer that first, and use these when the user would rather be told the key, or is
+None is big enough to warrant its own skill. **All of them also have a Settings control, except `filePanels`** (`skills` and `decks` per project, in Settings → Directory settings → Change here) — offer that first, and use these when the user would rather be told the key, or is
 setting up a machine without opening the browser.
 
 ### `skills` — the header's Skill menu, per project
@@ -445,6 +446,40 @@ it. Settings → Theme has an on/off switch for it (no picture choice). Asked to
 
 `"random"` (the default) lets each session pick its own; one of `bomb`, `volcano`, `kettle`,
 `rocket`, `dynamite`, `balloon` or `skull` uses that one everywhere.
+
+### `filePanels` — your own page beside a file
+
+A page of the user's own, shown beside the editor in the Files pane, that can mark lines, move the
+editor, ask its own command a question and put text at the terminal's prompt. What it is for —
+review comments, lint findings, notes — is entirely the page's business. **Empty by default, and
+there is no Settings control**: an entry names a page this app loads and a command this server
+runs, so it is written here or by hand.
+
+```json
+{
+  "filePanels": [
+    { "id": "comments", "label": "Comments", "extensions": ["md"], "page": "/Users/me/panels/comments-panel.html", "command": "node /Users/me/panels/comments-command.mjs" }
+  ]
+}
+```
+
+- The contract, and a complete sample to start from, are in the repository:
+  `docs/file-panels.md` and `samples/file-panel/`. **Read the first before writing a panel** — the
+  page runs sandboxed with no network, which decides what goes in the page and what in the command.
+- **Global only — never offer to put it in a project's `.mulmoterminal.json`.** That file arrives
+  with a clone, and a panel loads because a file was opened.
+- `page` must be an **absolute** path to one HTML file; a relative one is dropped on load. The
+  command is **argv, not a shell**: nothing expands, so `/Users/me/…`, not `~/…`. Check both exist
+  before saving the entry.
+- **Name the `extensions`.** Left out, the page loads for every text file opened.
+- A token the command needs goes in its own file or the server's environment, **not in this
+  config and not in the page** — the browser reads both.
+- Up to four entries; `id` is a lowercase slug; `command` is optional. A change applies to the
+  next file opened.
+- A panel shows **beside the source only**, and takes room only when its page asks to. Someone who
+  "can't see the panel" on a Markdown file is usually in Preview — tell them to switch to Edit
+  before looking for a broken page.
+- To check what was kept: `curl --noproxy localhost -s "http://localhost:${MULMOTERMINAL_PORT:-34567}/api/config" | jq .filePanels`.
 
 ### `toolbarPins` — pinned collections on the toolbar itself
 
