@@ -27,6 +27,7 @@ import { type HeaderConfig } from "./header-config.js";
 import { type CwdPreset, type Launcher, type Provider, type UserMcpServer } from "./config-schema.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 import type { CustomAgent } from "../../common/customAgents.js";
+import type { AnnotationProvider } from "../../common/fileAnnotations.js";
 import type { AgentAccount } from "../../common/agentAccounts.js";
 import type { PlayfulEffects } from "../../common/playfulEffects.js";
 import { systemTaskSettingsChanged } from "./system-task-settings.js";
@@ -108,6 +109,13 @@ export function getLaunchers(): Launcher[] {
 // so adding one needs no restart. The LIST is the allowlist; the browser sends only an id.
 export function getCustomAgents(): CustomAgent[] {
   return config.customAgents;
+}
+
+// Where a file's comments come from (common/fileAnnotations.ts) — read live, so a provider added
+// to config.json answers the next file opened. The LIST is the allowlist here too: the browser
+// names a provider by id and never sends a command.
+export function getAnnotationProviders(): AnnotationProvider[] {
+  return config.annotationProviders;
 }
 
 // Second logins for claude / codex (#2215). Read live like the custom agents: a new session is

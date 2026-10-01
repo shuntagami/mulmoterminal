@@ -1,0 +1,18 @@
+export const fileAnnotationsKo = {
+  title: "댓글",
+  count: "미해결 {count}건",
+  refresh: "댓글 다시 읽기",
+  line: "{line}번째 줄",
+  lines: "{from}–{to}번째 줄",
+  unplaced: "본문에서 찾을 수 없음",
+  moved: "위치 이동됨",
+  estimated: "위치 추정",
+  replyPlaceholder: "답글 쓰기…",
+  reply: "답글",
+  resolve: "해결됨으로 표시",
+  ask: "에이전트에게 요청",
+  askAll: "모두 에이전트에게 요청",
+  askTip: "이 댓글들에 대한 요청문을 터미널 입력란에 넣습니다. 읽은 뒤 전송하세요",
+  providerFailed: "{label}: {error}",
+  working: "처리 중…",
+};

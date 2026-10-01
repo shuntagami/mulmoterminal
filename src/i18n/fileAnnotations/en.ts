@@ -1,0 +1,18 @@
+export const fileAnnotationsEn = {
+  title: "Comments",
+  count: "{count} open",
+  refresh: "Read the comments again",
+  line: "Line {line}",
+  lines: "Lines {from}–{to}",
+  unplaced: "Not found in this text",
+  moved: "moved",
+  estimated: "position estimated",
+  replyPlaceholder: "Write a reply…",
+  reply: "Reply",
+  resolve: "Resolve",
+  ask: "Ask the agent",
+  askAll: "Ask the agent about all",
+  askTip: "Put a request about these comments at the terminal's prompt, for you to read and send",
+  providerFailed: "{label}: {error}",
+  working: "Working…",
+};

@@ -28,6 +28,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | **Claude 以外のモデル**で動かしたい | [プロバイダ](#providers) |
 | **自分のコマンド**で Claude Code を起動したい（`ollama launch claude …`） | [カスタムエージェント](#custom-agents) |
 | 一部のセルを**別の契約**（別の Claude Code / Codex のログイン）で動かしたい | [アカウント](#accounts) |
+| **クライアントのコメント**を、該当箇所の横で読んで返信したい | [別のツールのコメントを行の横に出す](#annotation-providers) |
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
 | **自分の配色**でアプリ全体を染めたい | [自分の配色を作る](#custom-themes) |
 | issue に**着手を知らせたい** | [issueWorkComments](#issue-work-comments) |
@@ -1839,6 +1840,63 @@ Claude Code は、ログイン・会話記録・設定を 1 つのディレク�
 
 → `/mulmoterminal-model` がこれを書いてくれます。
 
+## 別のツールのコメントを行の横に出す（`annotationProviders`） {#annotation-providers}
+
+*クライアントがレビューツールで原稿にコメントを付けた。それを該当箇所の横で読み、返信し、エージェントに
+渡したい — ファイルから離れずに。*
+
+MulmoTerminal はあなたのレビューツールを知りません。そこで **プロバイダ** を宣言します。「このファイルに
+付いているコメントは？」と聞いたり、返信を送ったりするために MulmoTerminal が実行するコマンドです。
+ツールの API やログインなど、ツール固有のことはすべてそのコマンドの中に置きます。
+
+```json
+{
+  "annotationProviders": [
+    { "id": "studio", "label": "Studio", "extensions": ["md"], "command": "node /Users/you/bin/studio-comments.mjs" }
+  ]
+}
+```
+
+| フィールド | |
+|---|---|
+| `id` | プロバイダの名前。小文字の英数字と `-` `_`。 |
+| `label` | 各コメントの横に出る名前。省くと id。 |
+| `extensions` | どのファイルについて聞くか。ドットなしの拡張子。**必ず書いてください** — 省くと、開いたテキストファイルすべてでコマンドが走ります。 |
+| `command` | コマンドライン。空白で区切り、引用符は効きます。**展開は一切しません**。`~/…` ではなく `/Users/you/…` と書いてください。 |
+
+4 つまで。保存した変更は、次に開いたファイルから効きます。再起動は要りません。
+
+**画面に出るもの。** プロバイダが対象にするファイルを、Files ペインで **Edit（Preview ではなく）** で開くと:
+
+- コメントのある行の左にコメントの印、その行に色が付きます
+- 右側のパネルに、スレッドごとに引用箇所・返信・返信欄が出ます（<kbd>Cmd/Ctrl</kbd>+<kbd>Enter</kbd> で送信）
+- プロバイダが許していれば **対応済みにする**
+- ペインの隣にターミナルがあれば **エージェントに頼む**。ファイルと各コメント（ID つき）を並べた依頼文を
+  ターミナルの入力欄に入れます。送信はされないので、読んでから送ってください
+
+印は、上の行に文字を足しても該当箇所に付いたまま動きます。コメントは、ファイルがディスク上で変わるたびと、
+パネルの読み直しボタンで読み直します。
+
+**コメントが見えないとき。** ありがちな順に:
+
+1. **Preview** で開いている。コメントはソースの行に付くので、Edit に切り替えてください。
+2. ファイルの拡張子が、プロバイダの `extensions` に入っていない。
+3. プロバイダが失敗している — そのときはパネルに赤字で理由が出ます（`not logged in`、`did not answer in time`）。
+4. 読み込み時にエントリが落とされた（`id` に大文字や空白がある、`command` が空）。
+   `curl -s "http://localhost:34567/api/config" | jq .annotationProviders` で、残ったものが分かります。
+
+**プロバイダを書く。** コマンドは stdin から JSON の依頼を 1 つ読み、stdout に JSON の答えを 1 つ書きます。
+取り決めと、そのまま動く見本はリポジトリにあります:
+[`docs/file-annotation-providers.md`](https://github.com/receptron/mulmoterminal/blob/main/docs/file-annotation-providers.md)、
+[`samples/annotation-provider/sidecar-comments.mjs`](https://github.com/receptron/mulmoterminal/blob/main/samples/annotation-provider/sidecar-comments.mjs)。
+
+わざとそうしている点が 2 つあります:
+
+- **このキーはグローバル設定だけ。** プロジェクトの `.mulmoterminal.json` には書けません。あのファイルは
+  クローンと一緒に届きますが、このコマンドはファイルを開いただけで走るからです。
+- **トークンをこのファイルに書かない。** 設定はブラウザから読めます。プロバイダは自分のファイルか、
+  サーバを起動した環境の環境変数からトークンを読んでください。
+
 ## この PR はどのクローンの作業か（`prWorkdirFooter`） {#pr-workdir-footer}
 
 同じリポジトリのクローンを `myrepo`, `myrepo2`, `myrepo3` … と並べて使っていると、GitHub 上の
@@ -2058,6 +2116,7 @@ posted by MulmoTerminal
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |
 | `customAgents` | Claude Code を起動する自分のコマンド。Agent Picker に並びます（→ [カスタムエージェント](#custom-agents)） |
+| `annotationProviders` | 別のツールが持つファイルへのコメントを取ってくるコマンド。行の横に出ます（→ [別のツールのコメントを行の横に出す](#annotation-providers)） |
 | `soundFile` | 全種類共通のフォールバック通知音（音声ファイルの絶対パス。設定モーダルからも変更可） |
 | `soundKinds` | どの瞬間に鳴らすか。**書かなければ** `["finished","waiting"]`、2.2 で増えた4種は opt-in、`[]` で無音（→ [通知音](#sounds)） |
 | `sounds` | 種類ごとの音。例 `{ "waiting": "preset:coin" }` — `preset:<id>` か絶対パス。未指定の種類は `soundFile` を使う（→ [通知音](#sounds)） |

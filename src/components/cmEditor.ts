@@ -6,6 +6,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension, type SelectionRange } from "@codemirror/state";
 import { unifiedMergeView } from "@codemirror/merge";
 import { changeGutter } from "./cmChangeGutter";
+import { annotationSlot, type AnnotationMark } from "./cmAnnotationGutter";
 import { markdown } from "@codemirror/lang-markdown";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
@@ -135,6 +136,13 @@ export interface CmEditor {
   setOriginal(text: string | null): void;
   /** Also show the removed lines in place, as a unified diff, rather than marks alone. */
   setShowChanges(on: boolean): void;
+  /** Where the file's comments are (common/fileAnnotations.ts): a mark and a tint per line, kept
+   *  across a re-read of the same file like the change marks. `onPick` hears the thread whose mark
+   *  was clicked. An empty list removes the gutter altogether. */
+  setAnnotations(marks: readonly AnnotationMark[], onPick: (key: string) => void): void;
+  /** The line (1-based) a thread's mark is on NOW — it moves as the reader types above it — or
+   *  null when that thread has no mark. */
+  annotationLine(key: string): number | null;
   destroy(): void;
 }
 
@@ -222,6 +230,7 @@ export function createEditor(parent: HTMLElement, onChange: () => void): CmEdito
     if (original === null) return [];
     return showChanges ? unifiedMergeView({ original, mergeControls: false, syntaxHighlightDeletions: true }) : changeGutter(original);
   };
+  const annotations = annotationSlot();
   const reconfigureChanges = (): void => view.dispatch({ effects: changes.reconfigure(changesExtension()) });
   const stateFor = (doc: string, mode: Extension): EditorState =>
     EditorState.create({
@@ -231,6 +240,7 @@ export function createEditor(parent: HTMLElement, onChange: () => void): CmEdito
         oneDark,
         lang.of(mode),
         changes.of(changesExtension()),
+        annotations.initial(),
         EditorView.lineWrapping,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange();
@@ -277,6 +287,7 @@ export function createEditor(parent: HTMLElement, onChange: () => void): CmEdito
       showChanges = on;
       reconfigureChanges();
     },
+    ...annotations.api(view),
     ...placeApi(view),
     destroy: () => view.destroy(),
   };

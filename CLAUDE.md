@@ -93,6 +93,25 @@ So "make both surfaces render the same" is a containment decision before it is a
 Read [`docs/file-surfaces.md`](docs/file-surfaces.md) before moving a renderer between surfaces
 or unifying two of them.
 
+## Comments on a file come from a declared command, never from this repo
+
+The Files pane can show comments beside a file's lines — a client's review, a feedback tool — and
+this app knows nothing about where they live. A user declares an **annotation provider** in the
+global config; the server runs that command with one JSON request on stdin and reads one JSON
+answer. The contract is `common/fileAnnotations.ts`, in prose at
+[`docs/file-annotation-providers.md`](docs/file-annotation-providers.md).
+
+Three rules that look like oversights and are not:
+
+- **Global config only.** Do not add `annotationProviders` to `.mulmoterminal.json`: that file
+  arrives with a clone, and the command runs because a file was OPENED.
+- **No source-specific code here.** A request to "support <tool>'s comments" is a provider written
+  outside this repo, not a branch in `server/files/`. If the contract cannot express what the tool
+  needs, change the contract — for every provider.
+- **The provider places the thread; the editor only carries it.** The wire has a line and a
+  `placement`, no offsets and no versions. Re-anchoring needs the source's own history, which is
+  exactly what this app does not have.
+
 ## The grid has three view modes — read before changing anything a cell renders
 
 `TerminalGrid.vue` is ONE `.stage` in three CSS states: the **tiled grid** (`!zoomed`), the

@@ -1,0 +1,18 @@
+export const fileAnnotationsZhTW = {
+  title: "留言",
+  count: "未處理 {count} 則",
+  refresh: "重新讀取留言",
+  line: "第 {line} 行",
+  lines: "第 {from}–{to} 行",
+  unplaced: "在內文中找不到",
+  moved: "位置已移動",
+  estimated: "位置為推測",
+  replyPlaceholder: "撰寫回覆…",
+  reply: "回覆",
+  resolve: "標為已處理",
+  ask: "交給代理",
+  askAll: "全部交給代理",
+  askTip: "把針對這些留言的請求放到終端機的輸入處，由你閱讀後送出",
+  providerFailed: "{label}: {error}",
+  working: "處理中…",
+};

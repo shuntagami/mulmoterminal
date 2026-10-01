@@ -45,6 +45,7 @@ running), `mulmoterminal-notify` for the sounds. Route rather than editing the g
 | Which agent a **new cell** opens on, or starting at all **without Claude Code** installed (`defaultAgent`, `--agent`) | `mulmoterminal-model` |
 | Which moments beep or push, and what they play | `mulmoterminal-notify` |
 | Work comments on an issue, the PR clone footer, the closing summary, the decision digest, the dev-work log, roster row length, a self-hosted GitLab | **stay here** — [the settings that live here](#the-settings-that-live-here) |
+| Comments from a review tool or a client-feedback system, shown beside a file's lines (`annotationProviders`) | **stay here** — [the settings that live here](#the-settings-that-live-here) |
 | Something is broken and they don't know which setting | **Audit first** (below), then route |
 
 If the request already names an area, skip the question. "Make this project blue" goes straight to
@@ -145,7 +146,7 @@ State these when they matter; they are the ones that cost people an afternoon.
 
 ## The settings that live here
 
-None is big enough to warrant its own skill. **All of them also have a Settings control** (`skills` and `decks` per project, in Settings → Directory settings → Change here) — offer that first, and use these when the user would rather be told the key, or is
+None is big enough to warrant its own skill. **All of them also have a Settings control, except `annotationProviders`** (`skills` and `decks` per project, in Settings → Directory settings → Change here) — offer that first, and use these when the user would rather be told the key, or is
 setting up a machine without opening the browser.
 
 ### `skills` — the header's Skill menu, per project
@@ -445,6 +446,36 @@ it. Settings → Theme has an on/off switch for it (no picture choice). Asked to
 
 `"random"` (the default) lets each session pick its own; one of `bomb`, `volcano`, `kettle`,
 `rocket`, `dynamite`, `balloon` or `skull` uses that one everywhere.
+
+### `annotationProviders` — comments from somewhere else, beside a file's lines
+
+A review tool or a client-feedback database has comments on a file; this shows them in the Files
+pane's editor, with a reply box. **Empty by default, and there is no Settings control** — an entry
+is a command line this server runs, so it is written here or by hand.
+
+```json
+{
+  "annotationProviders": [
+    { "id": "studio", "label": "Studio", "extensions": ["md"], "command": "node /Users/me/bin/studio-comments.mjs" }
+  ]
+}
+```
+
+- `command` answers one JSON request on stdin with one JSON answer on stdout. The contract, and a
+  complete sample to start from, are in the repository: `docs/file-annotation-providers.md` and
+  `samples/annotation-provider/sidecar-comments.mjs`. Read the first before writing a provider.
+- **Global only — never offer to put it in a project's `.mulmoterminal.json`.** That file arrives
+  with a clone, and this command runs because a file was opened.
+- The command is **argv, not a shell**: nothing expands. Write absolute paths (`/Users/me/…`, not
+  `~/…`), and check the program exists before saving the entry.
+- **Name the `extensions`.** Left out, the command runs for every text file opened.
+- A token the provider needs goes in its own file or the server's environment, **not in this
+  config** — the browser reads this config.
+- Up to four entries; `id` is a lowercase slug. A change applies to the next file opened.
+- Comments show **beside the source only**. Someone who "can't see the comments" on a Markdown file
+  is usually in Preview — tell them to switch to Edit before looking for a broken provider.
+- A provider that fails says why in the panel (`not logged in`, `did not answer in time`). To test
+  one outside the app: `echo '{"version":1,"op":"list","file":"/abs/a.md","root":"/abs","path":"a.md","content":""}' | <command>`.
 
 ### `toolbarPins` — pinned collections on the toolbar itself
 

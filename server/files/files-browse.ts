@@ -15,6 +15,8 @@ import os from "node:os";
 import { hasErrnoCode } from "../errors.js";
 import { backupCurrentFile, backupHolds, listBackups, readBackup, storeBackup } from "./backup-store.js";
 import { losslessText } from "./editableText.js";
+import { mountFilesAnnotationsRoute } from "./files-annotations.js";
+import type { AnnotationProvider } from "../../common/fileAnnotations.js";
 import { containedPath, expandTilde, namedBase, resolveBase, resolveContained } from "./pathContainment.js";
 import { servedImageSrc, type ServedDoc } from "./mdImageSrc.js";
 import { listProjectFiles } from "./project-files.js";
@@ -409,13 +411,21 @@ const renderMd = async (text: string, title: string, doc: ServedDoc): Promise<st
 const embedMd = async (text: string, title: string, nonce: string, doc: ServedDoc, theme: PreviewTheme | null, token: string | null): Promise<string> =>
   htmlDoc((await mdBody(text, doc)) + mdPreviewReporterTag(nonce, token), title, theme ? themeStyle(theme) : "");
 
-export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
-  const { defaultCwd, backupRoot } = deps;
-
+/** The routes that live in their own functions — pulled together so the mount below stays a list of
+ *  the ones that read and write the file itself. */
+function mountSideRoutes(app: Express, deps: BrowseDeps): void {
+  const { defaultCwd } = deps;
   mountSearchRoute(app, defaultCwd);
   mountLinesRoute(app, defaultCwd);
   mountCodeBlockRoute(app, defaultCwd);
   mountFilesGitStatusRoute(app, { base: baseResolver(defaultCwd), maxHeadBytes: MAX_EDIT_BYTES });
+  mountFilesAnnotationsRoute(app, { base: baseResolver(defaultCwd), readText: readTextOr4xx, providers: deps.annotationProviders ?? (() => []) });
+}
+
+export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
+  const { defaultCwd, backupRoot } = deps;
+
+  mountSideRoutes(app, deps);
 
   app.get("/api/files/browse/list", (req, res) => {
     const root = browseBase(req, defaultCwd);
@@ -503,6 +513,9 @@ type BrowseDeps = {
   /** Told when a save wrote a directory's `.mulmoterminal.json` / `.local.json`, so every open
    *  view re-reads that directory's config — the same signal an agent's write already sends. */
   onDirConfigWritten?: (dir: string) => void;
+  /** The declared sources of comments on a file (common/fileAnnotations.ts), read per request.
+   *  Absent means none — the route answers an empty list and runs nothing. */
+  annotationProviders?: () => AnnotationProvider[];
 };
 
 // Only for a directory's config file: what the pane should say about the save (#2624). Best-effort —

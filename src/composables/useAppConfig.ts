@@ -3,6 +3,8 @@ import { presetLabel, type CwdPreset } from "../components/presets";
 import { isManagedWorktreePath, worktreeLabel } from "../../common/worktreePath";
 import type { Launcher } from "../components/launchers";
 import { isCustomAgent, type CustomAgent } from "../../common/customAgents";
+import { sanitizeAnnotationProviders } from "../../common/fileAnnotations";
+import { annotationProviders } from "./annotationProviders";
 import { sanitizePaletteAliases, sanitizePaletteFavorites, type PaletteAliases } from "../../common/paletteConfig";
 import { isAgentAccount, type AgentAccount } from "../../common/agentAccounts";
 import type { UserMcpServer } from "../components/userMcp";
@@ -532,6 +534,7 @@ function adoptServerSideSettings(c: Record<string, unknown>): void {
 function adoptListConfig(c: Record<string, unknown>): void {
   launchers.value = listOf(c.launchers, isLauncher);
   customAgents.value = listOf(c.customAgents, isCustomAgent);
+  annotationProviders.value = sanitizeAnnotationProviders(c.annotationProviders);
   paletteAliases.value = sanitizePaletteAliases(c.paletteAliases);
   paletteFavorites.value = sanitizePaletteFavorites(c.paletteFavorites);
   accounts.value = listOf(c.accounts, isAgentAccount);

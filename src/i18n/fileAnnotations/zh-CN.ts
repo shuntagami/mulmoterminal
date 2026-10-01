@@ -1,0 +1,18 @@
+export const fileAnnotationsZhCN = {
+  title: "评论",
+  count: "未处理 {count} 条",
+  refresh: "重新读取评论",
+  line: "第 {line} 行",
+  lines: "第 {from}–{to} 行",
+  unplaced: "在正文中未找到",
+  moved: "位置已移动",
+  estimated: "位置为估计",
+  replyPlaceholder: "写回复…",
+  reply: "回复",
+  resolve: "标为已处理",
+  ask: "交给代理",
+  askAll: "全部交给代理",
+  askTip: "把针对这些评论的请求放到终端的输入处，由你阅读后发送",
+  providerFailed: "{label}: {error}",
+  working: "处理中…",
+};

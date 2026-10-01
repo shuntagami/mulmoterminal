@@ -1,0 +1,18 @@
+export const fileAnnotationsJa = {
+  title: "コメント",
+  count: "未対応 {count} 件",
+  refresh: "コメントを読み直す",
+  line: "{line} 行目",
+  lines: "{from}〜{to} 行目",
+  unplaced: "本文中に見つかりません",
+  moved: "位置が移動",
+  estimated: "位置は推定",
+  replyPlaceholder: "返信を書く…",
+  reply: "返信",
+  resolve: "対応済みにする",
+  ask: "エージェントに頼む",
+  askAll: "すべてエージェントに頼む",
+  askTip: "これらのコメントについての依頼文をターミナルの入力欄に入れます。読んでから送信してください",
+  providerFailed: "{label}: {error}",
+  working: "処理中…",
+};

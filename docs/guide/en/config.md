@@ -28,6 +28,7 @@ description: Configuring MulmoTerminal — the settings modal, per-project colou
 | Run on **a model other than Claude** | [Providers](#providers) |
 | Start Claude Code through **your own command** (`ollama launch claude …`) | [Custom agents](#custom-agents) |
 | Run some cells on **another subscription** (a second Claude Code / Codex login) | [Accounts](#accounts) |
+| Read and answer **a client's comments** beside the text they are about | [Comments from another tool](#annotation-providers) |
 | Add **your own button** to the header | [Customizing the header](#header) |
 | Recolour the whole app **your way** | [Make your own colour scheme](#custom-themes) |
 | Tell an issue **you have started on it** | [issueWorkComments](#issue-work-comments) |
@@ -1945,6 +1946,65 @@ on the default login does.
 
 → `/mulmoterminal-model` writes this for you.
 
+## Comments from another tool, beside the lines (`annotationProviders`) {#annotation-providers}
+
+*A client leaves comments on a manuscript in a review tool. You want to read them next to the
+passage they are about, answer them, and hand them to the agent — without leaving the file.*
+
+MulmoTerminal does not know your review tool. You declare a **provider**: a command it runs to ask
+"what comments are on this file?", and to send a reply back. Everything about your tool — its API,
+its login — lives in that command.
+
+```json
+{
+  "annotationProviders": [
+    { "id": "studio", "label": "Studio", "extensions": ["md"], "command": "node /Users/you/bin/studio-comments.mjs" }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `id` | A lowercase name for the provider (`a-z`, `0-9`, `-`, `_`). |
+| `label` | Shown beside each comment. Defaults to the id. |
+| `extensions` | Which files to ask about, without the dot. **Name them** — left out, the command runs for every text file you open. |
+| `command` | The command line. Split on spaces with quotes honoured; **nothing expands**, so write `/Users/you/…`, not `~/…`. |
+
+Up to four. Saved changes apply to the next file you open — no restart.
+
+**What you see.** Open a file a provider covers, in the Files pane, **in Edit — not Preview**:
+
+- a comment mark in the gutter and a tint on the lines each comment is about;
+- a panel on the right with each thread, the quoted passage, the replies, and a reply box
+  (<kbd>Cmd/Ctrl</kbd>+<kbd>Enter</kbd> sends);
+- **Resolve**, when the provider offers it;
+- **Ask the agent**, when there is a terminal beside the pane. It puts a request at the terminal's
+  prompt — the file, and each comment with its id — for you to read and send.
+
+The marks stay with their passage as you type above them. Comments are read again whenever the file
+changes on disk, and by the panel's refresh button.
+
+**Why you can't see the comments.** In order of likelihood:
+
+1. The file is in **Preview**. Comments hang on source lines; switch to Edit.
+2. The file's extension is not in the provider's `extensions`.
+3. The provider failed — the panel then says why in red (`not logged in`, `did not answer in time`).
+4. The entry was dropped on load: an `id` with capitals or spaces, or an empty `command`.
+   `curl -s "http://localhost:34567/api/config" | jq .annotationProviders` shows what was kept.
+
+**Writing a provider.** The command reads one JSON request on stdin and writes one JSON answer on
+stdout. The contract and a complete, runnable sample are in the repository:
+[`docs/file-annotation-providers.md`](https://github.com/receptron/mulmoterminal/blob/main/docs/file-annotation-providers.md)
+and
+[`samples/annotation-provider/sidecar-comments.mjs`](https://github.com/receptron/mulmoterminal/blob/main/samples/annotation-provider/sidecar-comments.mjs).
+
+Two things that are deliberate:
+
+- **This key is global only.** It cannot go in a project's `.mulmoterminal.json`: that file arrives
+  with a clone, and this command runs just because a file was opened.
+- **Keep tokens out of this file.** The browser can read the config. A provider reads its token
+  from its own file or from the environment the server was started in.
+
 ## Which clone made this PR (`prWorkdirFooter`) {#pr-workdir-footer}
 
 If you keep several checkouts of the same repo side by side — `myrepo`, `myrepo2`, `myrepo3` —
@@ -2172,6 +2232,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |
 | `customAgents` | Your own commands for starting Claude Code, offered in the Agent Picker (→ [Custom agents](#custom-agents)) |
+| `annotationProviders` | Commands that fetch another tool's comments on a file, shown beside its lines (→ [Comments from another tool](#annotation-providers)) |
 | `soundFile` | The fallback notification sound for every kind (absolute path to an audio file; also settable from the modal) |
 | `soundKinds` | Which moments beep. Omit to keep `["finished","waiting"]`; the four added in 2.2 are opt-in, `[]` for silence (→ [Notification sounds](#sounds)) |
 | `sounds` | Per-kind sound, e.g. `{ "waiting": "preset:coin" }` — a `preset:<id>` or an absolute path. A kind with no entry uses `soundFile` (→ [Notification sounds](#sounds)) |

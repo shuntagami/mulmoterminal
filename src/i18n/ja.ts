@@ -4,6 +4,7 @@ import { tipsJa } from "./tips/ja";
 import { commandPaletteJa } from "./commandPalette/ja";
 import { focusModeJa } from "./focusMode/ja";
 import { fileHistoryJa } from "./fileHistory/ja";
+import { fileAnnotationsJa } from "./fileAnnotations/ja";
 import { dirConfigSaveJa } from "./dirConfigSave/ja";
 import { releaseNotesJa } from "./releaseNotes/ja";
 import { dirConfigOpenJa } from "./dirConfigOpen/ja";
@@ -628,6 +629,7 @@ export const ja: Messages = {
     close: "わかった",
   },
   fileHistory: fileHistoryJa,
+  fileAnnotations: fileAnnotationsJa,
   dirConfigSave: dirConfigSaveJa,
   releaseNotes: releaseNotesJa,
   dirConfigOpen: dirConfigOpenJa,
